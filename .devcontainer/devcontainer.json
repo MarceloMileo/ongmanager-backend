@@ -1,0 +1,26 @@
+{
+  "name": "ONGManager Backend (Laravel)",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/ongmanager-backend",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "php.suggest.basic": false,
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "hashicorp.terraform",
+        "signageos.signageos-vscode-sops",
+        "eamodio.gitlens",
+        "EditorConfig.EditorConfig"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "echo 'Ambiente ONGManager inicializado com sucesso. Pronto para a instalação do Laravel.'"
+}
