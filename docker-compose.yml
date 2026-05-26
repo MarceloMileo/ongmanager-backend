@@ -7,9 +7,7 @@ services:
       dockerfile: .devcontainer/Dockerfile
     volumes:
       - .:/workspaces/ongmanager-backend:cached
-    # Mantém o container rodando para o VS Code / Codespaces se conectar
     command: /bin/sh -c "while sleep 1000; do :; done"
-    network_mode: service:postgres # O container app usará a rede dos serviços para facilitar conexão localhost
     depends_on:
       - postgres
       - rabbitmq
@@ -34,8 +32,8 @@ services:
       RABBITMQ_DEFAULT_USER: devuser
       RABBITMQ_DEFAULT_PASS: devpassword
     ports:
-      - "5672:5672"   # Porta do protocolo AMQP
-      - "15672:15672" # Painel de controle Web (Management UI)
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
