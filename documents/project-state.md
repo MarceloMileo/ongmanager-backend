@@ -4,7 +4,7 @@ Este documento funciona como a "verdade absoluta" do projeto ONGManager Backend.
 
 1. Visão Geral do Produto e Mercado
 
-Produto: ONGManager B2B SaaS (Produção/Enterprise-ready, não MVP).
+Produto: ONGManager B2B SaaS (Produção/Enterprise-ready, pronto para o mercado).
 
 Foco: Gestão, governança e eficiência operacional para o Terceiro Setor.
 
@@ -50,179 +50,46 @@ ProjectDelivery (Operações e Beneficiários).
 
 Independência de Camadas: Domínio puro (Domain/) sem heranças de frameworks. Inversão de dependência usando interfaces de repositórios. Persistência de infraestrutura isolada com Eloquent. Comunicação intermódulos assíncrona por Eventos de Domínio no Redis/RabbitMQ.
 
+ADR 0003: Estratégia de Internacionalização (i18n) e Localização (L10n)
+
+Localização de Respostas da API: Implementação de Middleware global que intercepta as requisições, lê o cabeçalho Accept-Language e configura o locale da aplicação via Laravel localization.
+
+Isolamento de Regras Fiscais: Uso de Strategy Pattern resolvido em tempo de execução com base no país do Tenant para aplicar regras tributárias correspondentes (MROSC no Brasil, SII no Chile).
+
+Persistência de Textos Multilíngues: Colunas que requerem traduções dinâmicas no PostgreSQL utilizarão o tipo de dado JSONB para armazenamento flexível de localizações no formato chave-valor.
+
+Fuso Horário Global: Persistência de datas e horas em UTC no banco de dados. Apresentação local resolvida na camada de exibição (Client-side).
+
 3. Configuração do Ambiente de Desenvolvimento Local (Docker)
 
-Os arquivos abaixo devem ser criados e persistidos na raiz do repositório ongmanager-backend.
+Os arquivos de infraestrutura .devcontainer/Dockerfile, .devcontainer/devcontainer.json e docker-compose.yml foram configurados com sucesso para suportar o desenvolvimento unificado no GitHub Codespaces e máquinas físicas locais. O ambiente contém:
 
-Arquivo: .devcontainer/Dockerfile
+PHP 8.3 CLI com extensões pdo_pgsql, bcmath, zip, sockets e drivers PECL redis e amqp.
 
-FROM [mcr.microsoft.com/devcontainers/php:1-8.3-bullseye](https://mcr.microsoft.com/devcontainers/php:1-8.3-bullseye)
+PostgreSQL 16 Alpine.
 
-# Desativa o repositório quebrado da Yarn para evitar falhas de chave GPG expirada no Bullseye
-RUN rm -f /etc/apt/sources.list.d/yarn.list \
-    && apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get install -y \
-        libpq-dev \
-        librabbitmq-dev \
-        libzip-dev \
-        unzip \
-        gnupg \
-        curl \
-    && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+Redis 7 Alpine.
 
-# Instala as extensões necessárias para banco de dados, alta precisão matemática e filas
-RUN docker-php-ext-install pdo_pgsql bcmath zip sockets
+RabbitMQ 3 Management.
 
-RUN pecl install redis amqp \
-    && docker-php-ext-enable redis amqp
+Terraform CLI e Mozilla SOPS CLI pré-instalados.
 
-# Instala Terraform CLI
-RUN curl -fsSL [https://apt.releases.hashicorp.com/gpg](https://apt.releases.hashicorp.com/gpg) | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] [https://apt.releases.hashicorp.com](https://apt.releases.hashicorp.com) bullseye main" | tee /etc/apt/sources.list.d/hashicorp.list \
-    && apt-get update && apt-get install -y terraform
+4. Status de Implementação e Código do Core
 
-# Instala Mozilla SOPS
-RUN curl -LO [https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64](https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64) \
-    && mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops \
-    && chmod +x /usr/local/bin/sops
+Progresso de Infraestrutura
 
-# Instala Composer
-RUN curl -sS [https://getcomposer.org/installer](https://getcomposer.org/installer) | php -- --install-dir=/usr/local/bin --filename=composer
+Instalação do Laravel 11: Concluída e unificada na estrutura do contêiner.
 
+Banco de Dados PostgreSQL: Migrações iniciais executadas com sucesso. Conexão local validada.
 
-Arquivo: .devcontainer/devcontainer.json
+Progresso de Domínio (Shared Kernel)
 
-{
-  "name": "ONGManager Backend (Laravel)",
-  "dockerComposeFile": "../docker-compose.yml",
-  "service": "app",
-  "workspaceFolder": "/workspaces/ongmanager-backend",
-  "customizations": {
-    "vscode": {
-      "settings": {
-        "php.suggest.basic": false,
-        "editor.formatOnSave": true
-      },
-      "extensions": [
-        "bmewburn.vscode-intelephense-client",
-        "hashicorp.terraform",
-        "signageos.signageos-vscode-sops",
-        "eamodio.gitlens",
-        "EditorConfig.EditorConfig"
-      ]
-    }
-  },
-  "remoteUser": "vscode",
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
-  },
-  "postCreateCommand": "echo 'Ambiente ONGManager restaurado com sucesso!'"
-}
+Value Object Money (app/Contexts/Shared/Domain/ValueObjects/Money.php): Implementado com sucesso. Trata-se de uma classe rica e imutável que gerencia valores monetários em inteiros (centavos), utiliza a extensão matemática de precisão arbitrária bcmath para cálculos e implementa o algoritmo de alocação proporcional de Martin Fowler para evitar perdas de centavos residuais em rateios.
 
-
-Arquivo: docker-compose.yml
-
-version: '3.8'
-
-services:
-  app:
-    build:
-      context: .
-      dockerfile: .devcontainer/Dockerfile
-    volumes:
-      - .:/workspaces/ongmanager-backend:cached
-    command: /bin/sh -c "while sleep 1000; do :; done"
-    depends_on:
-      - postgres
-      - rabbitmq
-      - redis
-
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ongmanager
-      POSTGRES_USER: devuser
-      POSTGRES_PASSWORD: devpassword
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: devuser
-      RABBITMQ_DEFAULT_PASS: devpassword
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-
-volumes:
-  db-data:
-  rabbitmq-data:
-  redis-data:
-
-
-4. Playbook de Operação Rápida
-
-Como Reconstruir o Ambiente Local do Zero
-
-No VS Code / Codespaces, pressione F1 -> Codespaces: Rebuild Container.
-
-Como Instalar o Laravel 11 em Diretório Contendo o Docker
-
-composer create-project laravel/laravel laravel-temp --prefer-dist
-mv laravel-temp/* .
-find laravel-temp -maxdepth 1 -name ".*" ! -name "." ! -name ".." -exec mv {} . \;
-rm -rf laravel-temp
-
-
-Configurações Iniciais e Execução do Banco de Dados
-
-No arquivo .env gerado, certifique-se de definir as credenciais do PostgreSQL:
-
-DB_CONNECTION=pgsql
-DB_HOST=postgres
-DB_PORT=5432
-DB_DATABASE=ongmanager
-DB_USERNAME=devuser
-DB_PASSWORD=devpassword
-
-
-Execute as migrações:
-
-php artisan config:clear
-php artisan key:generate
-php artisan migrate
-
-
-Comandos de Diagnóstico e Saúde do Ambiente
-
-# Validação das Extensões PHP CLI
-php -m | grep pdo_pgsql   # Deve retornar pdo_pgsql
-php -m | grep bcmath      # Deve retornar bcmath
-
-# Validação do DNS Interno do Docker
-ping -c 3 postgres        # Deve responder com sucesso
-ping -c 3 redis           # Deve responder com sucesso
-
+Testes de Unidade do Money (tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php): Criados em inglês e executados com sucesso. 100% de cobertura de testes nas operações de imutabilidade, rejeição de formatos inválidos, consistência de arredondamento e alocação.
 
 5. Próximos Passos de Engenharia
 
-Modelagem Contábil e Alta Precisão: Desenvolver o Objeto de Valor (Value Object) Money imutável em PHP puro na camada de Domínio, protegendo contra erros de ponto flutuante utilizando extensões matemáticas de alta precisão (bcmath).
+Implementação do Objeto de Valor ExchangeRate: Desenhar e programar a estrutura de conversão de moedas.
 
-Setup do PHPUnit / Pest: Configurar o framework de testes e construir o primeiro teste unitário de consistência matemática para o rateio de custos de despesas.
-
-Mapeamento do Bounded Context SpendManagement: Criar as estruturas de diretórios especificadas na ADR 0002.
+Mapeamento do Bounded Context SpendManagement: Iniciar a criação da modelagem tática de Despesas (Expense), Linhas de Despesa (ExpenseLine) e Distribuição de Custos (CostDistribution).

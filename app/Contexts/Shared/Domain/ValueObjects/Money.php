@@ -15,7 +15,7 @@ final readonly class Money
     private int $amountInCents;
     private string $currency;
 
-    public function __contruct(int $amountInCents, string $currency)
+    public function __construct(int $amountInCents, string $currency)
     {
         if (empty($currency) || strlen($currency) !== 3) {
             throw new InvalidArgumentException('A moeda deve ser um codigg ISO 4217 de 3 caracteres');
