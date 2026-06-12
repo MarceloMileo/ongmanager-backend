@@ -1,95 +1,143 @@
-ONGManager - Estado Atual do Projeto e Guia de Restauração (Restore Point)
+# ONGManager - Estado Atual do Projeto e Guia de Restauração (Restore Point)
 
-Este documento funciona como a "verdade absoluta" do projeto ONGManager Backend. Ele deve ser mantido atualizado a cada evolução técnica. Caso o contexto de desenvolvimento ou a sessão de IA sejam perdidos, a leitura deste arquivo é suficiente para restaurar o estado exato da aplicação e continuar a engenharia de software de onde paramos.
+> Este documento funciona como a "verdade absoluta" do projeto ONGManager Backend. Ele deve ser mantido atualizado a cada evolução técnica. Caso o contexto de desenvolvimento ou a sessão de IA sejam perdidos, a leitura deste arquivo é suficiente para restaurar o estado exato da aplicação e continuar a engenharia de software de onde paramos.
 
-1. Visão Geral do Produto e Mercado
+---
 
-Produto: ONGManager B2B SaaS (Produção/Enterprise-ready, pronto para o mercado).
+## 1. Visão Geral do Produto e Mercado
 
-Foco: Gestão, governança e eficiência operacional para o Terceiro Setor.
+**Produto:** ONGManager B2B SaaS (Produção/Enterprise-ready, pronto para o mercado).
 
-Compliance: MROSC (Brasil) e SII (Chile).
+**Foco:** Gestão, governança e eficiência operacional para o Terceiro Setor.
 
-Diferenciais: Engine de rateio multimoeda com consistência matemática absoluta, rastreabilidade de doações "carimbadas" (fundo restrito), auditoria em tempo real, controle de voluntariado e mensuração de impacto social convertido em unidades financeiras e operacionais.
+**Compliance:** MROSC (Brasil) e SII (Chile).
 
-2. Decisões Arquiteturais Consolidadas (ADRs)
+**Diferenciais:** Engine de rateio multimoeda com consistência matemática absoluta, rastreabilidade de doações "carimbadas" (fundo restrito), auditoria em tempo real, controle de voluntariado e mensuração de impacto social convertido em unidades financeiras e operacionais.
 
-ADR 0001: Infraestrutura e Topologia
+---
 
-Monólito Modular: Backend em Laravel 11 (PHP 8.3) com separação estrita de contextos de negócio (Namespaces dedicados) em vez de microsserviços físicos prematuros.
+## 2. Decisões Arquiteturais Consolidadas (ADRs)
 
-Polyrepo: Divisão rígida no GitHub Pro:
+### ADR 0001: Infraestrutura e Topologia
 
-ongmanager-backend (Este repositório - Core contábil + IaC).
+- **Monólito Modular:** Backend em Laravel 11 (PHP 8.3) com separação estrita de contextos de negócio (Namespaces dedicados) em vez de microsserviços físicos prematuros.
+- **Polyrepo:** Divisão rígida no GitHub Pro:
+  - `ongmanager-backend` (Este repositório — Core contábil + IaC)
+  - `ongmanager-web` (React SaaS Frontend)
+  - `ongmanager-mobile` (React Native app offline-first)
+- **Infraestrutura como Código (IaC):** Terraform para provisionamento automatizado AWS (ECS Fargate, RDS PostgreSQL, VPC, ElastiCache Redis, Amazon MQ).
+- **Observabilidade:** OpenTelemetry (OTel) + Loki/Prometheus/Tempo integrados ao Grafana Cloud.
+- **Gestão de Segredos:** Mozilla SOPS integrado com AWS KMS (segredos cifrados diretamente no repositório, garantindo GitOps puro).
 
-ongmanager-web (React SaaS Frontend).
+### ADR 0002: Arquitetura de Software e DDD
 
-ongmanager-mobile (React Native app offline-first).
+- **Fronteiras de Domínio:** Organização física sob `app/Contexts/{Contexto}/`.
+- **Módulos Iniciais Mapeados:**
+  - `SpendManagement` (Gestão de Gastos e Reembolsos)
+  - `BudgetAllocation` (Execução Orçamentária e Bloqueios)
+  - `FiscalCompliance` (Auditoria e Localizações Fiscais)
+  - `Fundraising` (Captação e Doações)
+  - `ProjectDelivery` (Operações e Beneficiários)
+- **Independência de Camadas:** Domínio puro (`Domain/`) sem heranças de frameworks. Inversão de dependência usando interfaces de repositórios. Persistência de infraestrutura isolada com Eloquent. Comunicação intermódulos assíncrona por Eventos de Domínio no Redis/RabbitMQ.
 
-Infraestrutura como Código (IaC): Terraform para provisionamento automatizado AWS (ECS Fargate, RDS PostgreSQL, VPC, ElastiCache Redis, Amazon MQ).
+### ADR 0003: Estratégia de Internacionalização (i18n) e Localização (L10n)
 
-Observabilidade: OpenTelemetry (OTel) + Loki/Prometheus/Tempo integrados ao Grafana Cloud.
+- **Localização de Respostas da API:** Middleware global lê o cabeçalho `Accept-Language` e configura o locale via Laravel localization.
+- **Isolamento de Regras Fiscais:** Strategy Pattern resolvido em tempo de execução com base no país do Tenant (`BrazilianFiscalStrategy`, `ChileanFiscalStrategy`).
+- **Persistência de Textos Multilíngues:** Colunas com traduções dinâmicas usam `JSONB` no PostgreSQL. Formato: `{"pt_BR": "...", "es_CL": "...", "en": "..."}`.
+- **Fuso Horário Global:** Toda data/hora persistida em UTC no banco. Conversão para horário local resolvida na camada de exibição (client-side). **Invariante de domínio:** Value Objects que recebem `DateTimeImmutable` devem validar e rejeitar timezones não-UTC.
 
-Gestão de Segredos: Mozilla SOPS integrado com AWS KMS (segredos cifrados diretamente no repositório, garantindo GitOps puro).
+---
 
-ADR 0002: Arquitetura de Software e DDD
+## 3. Configuração do Ambiente de Desenvolvimento Local (Docker)
 
-Fronteiras de Domínio: Organização física sob app/Contexts/{Contexto}/.
+Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `docker-compose.yml` estão configurados para GitHub Codespaces e máquinas físicas locais. O ambiente contém:
 
-Módulos Iniciais Mapeados:
+- PHP 8.3 CLI com extensões `pdo_pgsql`, `bcmath`, `zip`, `sockets` e drivers PECL `redis` e `amqp`.
+- PostgreSQL 16 Alpine
+- Redis 7 Alpine
+- RabbitMQ 3 Management
+- Terraform CLI e Mozilla SOPS CLI pré-instalados
 
-SpendManagement (Gestão de Gastos e Reembolsos).
+---
 
-BudgetAllocation (Execução Orçamentária e Bloqueios).
+## 4. Status de Implementação e Código do Core
 
-FiscalCompliance (Auditoria e Localizações Fiscais).
+### Infraestrutura
 
-Fundraising (Captação e Doações).
+| Item | Status |
+|---|---|
+| Instalação do Laravel 11 | ✅ Concluído |
+| Banco de Dados PostgreSQL | ✅ Concluído — migrações iniciais executadas e conexão validada |
 
-ProjectDelivery (Operações e Beneficiários).
+### Shared Kernel — Value Objects
 
-Independência de Camadas: Domínio puro (Domain/) sem heranças de frameworks. Inversão de dependência usando interfaces de repositórios. Persistência de infraestrutura isolada com Eloquent. Comunicação intermódulos assíncrona por Eventos de Domínio no Redis/RabbitMQ.
+#### ✅ `Money` — `app/Contexts/Shared/Domain/ValueObjects/Money.php`
 
-ADR 0003: Estratégia de Internacionalização (i18n) e Localização (L10n)
+Classe `final readonly` imutável que representa valores monetários em centavos (inteiros). Utiliza `bcmath` para precisão arbitrária e implementa o Algoritmo de Alocação Proporcional de Martin Fowler (`allocate()`).
 
-Localização de Respostas da API: Implementação de Middleware global que intercepta as requisições, lê o cabeçalho Accept-Language e configura o locale da aplicação via Laravel localization.
+**Operações implementadas:** `add`, `subtract`, `multiply`, `allocate`, `isGreaterThan`, `isLessThan`, `equals`.
 
-Isolamento de Regras Fiscais: Uso de Strategy Pattern resolvido em tempo de execução com base no país do Tenant para aplicar regras tributárias correspondentes (MROSC no Brasil, SII no Chile).
+**Invariantes do construtor:**
+- Moeda deve ser código ISO 4217 de exatamente 3 caracteres.
+- Moeda normalizada para uppercase internamente.
+- Valores negativos são permitidos (representam estornos contábeis).
 
-Persistência de Textos Multilíngues: Colunas que requerem traduções dinâmicas no PostgreSQL utilizarão o tipo de dado JSONB para armazenamento flexível de localizações no formato chave-valor.
+**Correções aplicadas na revisão de pair programming:**
+- `Multiply` → `multiply` (PSR-1: métodos em camelCase com inicial minúscula)
+- `substract` → `subtract` (grafia correta em inglês)
+- Typo `codigg` → `código` na mensagem de exceção
 
-Fuso Horário Global: Persistência de datas e horas em UTC no banco de dados. Apresentação local resolvida na camada de exibição (Client-side).
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php` — ✅ 100% de cobertura.
+Casos cobertos: criação válida, normalização de moeda, valor zero e negativo, rejeição de moeda inválida/vazia, `equals`, `add` (resultado + imutabilidade + moedas diferentes), `subtract` (resultado + negativo + moedas diferentes), `multiply` (arredondamento + imutabilidade), `allocate` (proporcional + soma consistente + assimétrico + empty + zero-sum), `isGreaterThan`, `isLessThan`, comparação entre moedas diferentes.
 
-3. Configuração do Ambiente de Desenvolvimento Local (Docker)
+---
 
-Os arquivos de infraestrutura .devcontainer/Dockerfile, .devcontainer/devcontainer.json e docker-compose.yml foram configurados com sucesso para suportar o desenvolvimento unificado no GitHub Codespaces e máquinas físicas locais. O ambiente contém:
+#### ✅ `ExchangeRate` — `app/Contexts/Shared/Domain/ValueObjects/ExchangeRate.php`
 
-PHP 8.3 CLI com extensões pdo_pgsql, bcmath, zip, sockets e drivers PECL redis e amqp.
+Classe `final readonly` imutável que representa a taxa de conversão cambial entre duas moedas em uma data específica. Taxa armazenada como `string` para preservar precisão decimal arbitrária via `bcmath`.
 
-PostgreSQL 16 Alpine.
+**Operações implementadas:** `convert(Money): Money`, `equals(ExchangeRate): bool`.
 
-Redis 7 Alpine.
+**Invariantes do construtor:**
+- Moedas de origem e destino: código ISO 4217 de 3 caracteres, normalizadas para uppercase.
+- Moedas de origem e destino não podem ser iguais.
+- Taxa deve ser maior que zero (validada via `bccomp`).
+- **Data deve estar em UTC** (validação via `$date->getTimezone()->getName() !== 'UTC'`) — invariante derivado da ADR-003.
 
-RabbitMQ 3 Management.
+**Correções/adições aplicadas na revisão de pair programming:**
+- Adicionada validação de UTC no `DateTimeImmutable` recebido no construtor.
+- Adicionado método `equals()` com comparação de taxa via `bccomp` (evita erros de ponto flutuante).
 
-Terraform CLI e Mozilla SOPS CLI pré-instalados.
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExchangeRateTest.php` — ✅ 100% de cobertura.
+Casos cobertos: criação válida, rejeição de moeda inválida (origem e destino), moedas iguais, taxa zero, taxa negativa, data não-UTC (São Paulo e Santiago), conversão com resultado exato, conversão com arredondamento HALF_UP, incompatibilidade de moeda na conversão, `equals` (igual, taxa diferente, data diferente, moeda diferente).
 
-4. Status de Implementação e Código do Core
+---
 
-Progresso de Infraestrutura
+### Bounded Contexts — Em progresso
 
-Instalação do Laravel 11: Concluída e unificada na estrutura do contêiner.
+| Contexto | Status |
+|---|---|
+| `SpendManagement` | 🔜 Próximo — modelagem de `Expense`, `ExpenseLine`, `CostDistribution` |
+| `BudgetAllocation` | ⏳ Não iniciado |
+| `FiscalCompliance` | ⏳ Não iniciado |
+| `Fundraising` | ⏳ Não iniciado |
+| `ProjectDelivery` | ⏳ Não iniciado |
 
-Banco de Dados PostgreSQL: Migrações iniciais executadas com sucesso. Conexão local validada.
+---
 
-Progresso de Domínio (Shared Kernel)
+## 5. Convenções e Padrões Estabelecidos no Código
 
-Value Object Money (app/Contexts/Shared/Domain/ValueObjects/Money.php): Implementado com sucesso. Trata-se de uma classe rica e imutável que gerencia valores monetários em inteiros (centavos), utiliza a extensão matemática de precisão arbitrária bcmath para cálculos e implementa o algoritmo de alocação proporcional de Martin Fowler para evitar perdas de centavos residuais em rateios.
+- **Testes escritos em inglês** (nomes de métodos e asserções).
+- **Um único motivo de falha por teste** — asserções de comportamento e imutabilidade em testes separados.
+- **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()` no `ExchangeRateTest`).
+- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios (ex: negativos permitidos) devem ter um docblock explicando o porquê no contexto do negócio.
+- **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR.
 
-Testes de Unidade do Money (tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php): Criados em inglês e executados com sucesso. 100% de cobertura de testes nas operações de imutabilidade, rejeição de formatos inválidos, consistência de arredondamento e alocação.
+---
 
-5. Próximos Passos de Engenharia
+## 6. Próximos Passos de Engenharia
 
-Implementação do Objeto de Valor ExchangeRate: Desenhar e programar a estrutura de conversão de moedas.
-
-Mapeamento do Bounded Context SpendManagement: Iniciar a criação da modelagem tática de Despesas (Expense), Linhas de Despesa (ExpenseLine) e Distribuição de Custos (CostDistribution).
+1. **Mapeamento tático do `SpendManagement`:** Modelar as entidades `Expense`, `ExpenseLine` e o objeto de valor `CostDistribution`, aplicando as regras da Seção 2 do documento de Regras de Domínio (Consistência Matemática do Rateio de Custos).
+2. **Implementar a Penny Rounding Rule** no contexto de rateio misto multimoeda, utilizando `Money` + `ExchangeRate` em conjunto.
+3. **Definir interfaces de repositório** (`IExpenseRepository`) na camada de `Domain` do `SpendManagement`.
