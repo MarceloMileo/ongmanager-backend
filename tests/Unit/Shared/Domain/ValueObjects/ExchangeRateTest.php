@@ -7,14 +7,27 @@ namespace Tests\Unit\Shared\Domain\ValueObjects;
 use App\Contexts\Shared\Domain\ValueObjects\ExchangeRate;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
 use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 class ExchangeRateTest extends TestCase
 {
-    public function test_should_create_exchage_rate_successfully(): void
+    // ─────────────────────────────────────────────
+    // Helper: retorna uma data UTC válida para os testes
+    // ─────────────────────────────────────────────
+    private function utcDate(string $date = '2026-05-19'): DateTimeImmutable
     {
-        $date = new DateTimeImmutable('2026-05-19');
+        return new DateTimeImmutable($date, new DateTimeZone('UTC'));
+    }
+
+    // ─────────────────────────────────────────────
+    // Criação válida
+    // ─────────────────────────────────────────────
+
+    public function test_should_create_exchange_rate_successfully(): void
+    {
+        $date = $this->utcDate();
         $exchange = new ExchangeRate('USD', 'CLP', '900.50', $date);
 
         $this->assertSame('USD', $exchange->getSourceCurrency());
@@ -23,58 +36,86 @@ class ExchangeRateTest extends TestCase
         $this->assertSame($date, $exchange->getDate());
     }
 
-    public function test_should_reject_invalid_currencies(): void
-    {
-        $date = new DateTimeImmutable('2026-05-19');
+    // ─────────────────────────────────────────────
+    // Validações do construtor
+    // ─────────────────────────────────────────────
 
+    public function test_should_reject_invalid_source_currency(): void
+    {
         $this->expectException(InvalidArgumentException::class);
-        new ExchangeRate('INVALID', 'CLP', 900, $date);
+        new ExchangeRate('INVALID', 'CLP', '900', $this->utcDate());
+    }
+
+    public function test_should_reject_invalid_target_currency(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new ExchangeRate('USD', 'INVALID', '900', $this->utcDate());
     }
 
     public function test_should_reject_identical_currencies(): void
     {
-        $date = new DateTimeImmutable('2026-05-19');
-
         $this->expectException(InvalidArgumentException::class);
-        new ExchangeRate('USD', 'USD', 1.0, $date);
+        new ExchangeRate('USD', 'USD', '1.0', $this->utcDate());
     }
 
-    public function test_should_reject_zero_or_negativ_rates(): void
+    public function test_should_reject_zero_rate(): void
     {
-        $date = new DateTimeImmutable('2026-05-19');
-
         $this->expectException(InvalidArgumentException::class);
-        new ExchangeRate('USD', 'CLP', 0, $date);
+        new ExchangeRate('USD', 'CLP', '0', $this->utcDate());
     }
 
-    public function test_should_convert_money_successfully_with_correct_round(): void
+    public function test_should_reject_negative_rate(): void
     {
-        $date = new DateTimeImmutable('2026-05-19');
+        $this->expectException(InvalidArgumentException::class);
+        new ExchangeRate('USD', 'CLP', '-1.0', $this->utcDate());
+    }
 
+    /**
+     * ADR-003: A data da taxa de câmbio deve estar em UTC.
+     * Uma data em timezone local deve ser rejeitada pelo construtor.
+     */
+    public function test_should_reject_non_utc_date(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $localDate = new DateTimeImmutable('2026-05-19', new DateTimeZone('America/Sao_Paulo'));
+        new ExchangeRate('USD', 'BRL', '5.70', $localDate);
+    }
+
+    public function test_should_reject_non_utc_date_from_santiago(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $localDate = new DateTimeImmutable('2026-05-19', new DateTimeZone('America/Santiago'));
+        new ExchangeRate('USD', 'CLP', '900', $localDate);
+    }
+
+    // ─────────────────────────────────────────────
+    // Conversão
+    // ─────────────────────────────────────────────
+
+    public function test_should_convert_money_successfully(): void
+    {
         // 1 USD = 900.50 CLP
-        $exchange = new ExchangeRate('USD', 'CLP', '900.50', $date);
+        // $10.00 USD = 1000 cents
+        // 1000 * 900.50 = 900.500 cents CLP = 9.005,00 CLP
+        $exchange = new ExchangeRate('USD', 'CLP', '900.50', $this->utcDate());
+        $usdMoney  = new Money(1000, 'USD');
 
-        //$10.00 USD (1000 cents)
-        $usdMoney = new Money(1000, 'USD');
-
-        // Conversion: 1000 cents * 900.50 = 900500 cents (9,005.00 CLP)
         $clpMoney = $exchange->convert($usdMoney);
 
         $this->assertSame('CLP', $clpMoney->getCurrency());
         $this->assertSame(900500, $clpMoney->getAmountInCents());
     }
 
-    public function test_should_apply_correct_decimal_rounding_on_conversion(): void
+    public function test_should_apply_correct_rounding_on_conversion(): void
     {
-        $date = new DateTimeImmutable('2026-05-19');
-
         // 1 USD = 0.9155 EUR
-        $exchange = new ExchangeRate('USD', 'EUR', '0.9155', $date);
+        // $1.00 USD = 100 cents
+        // 100 * 0.9155 = 91.55 cents → arredonda HALF_UP → 92 cents
+        $exchange = new ExchangeRate('USD', 'EUR', '0.9155', $this->utcDate());
+        $usdMoney  = new Money(100, 'USD');
 
-        // $1.00 USD (100 cents)
-        $usdMoney = new Money(100, 'USD');
-
-        // 100 * 0.9155 = 91.55 cents -> round half up -> 92 EUR cents
         $eurMoney = $exchange->convert($usdMoney);
 
         $this->assertSame('EUR', $eurMoney->getCurrency());
@@ -83,13 +124,50 @@ class ExchangeRateTest extends TestCase
 
     public function test_should_prevent_conversion_with_mismatched_source_currency(): void
     {
-        $date = new DateTimeImmutable('2026-05-19');
-        $exchange = new ExchangeRate('USD', 'CLP', '900', $date);
-
-        // Trying to convert BRL using a USD-CLP converter
-        $brlMoney = new Money(1000, 'BRL');
-
         $this->expectException(InvalidArgumentException::class);
+
+        $exchange = new ExchangeRate('USD', 'CLP', '900', $this->utcDate());
+        $brlMoney  = new Money(1000, 'BRL');
+
         $exchange->convert($brlMoney);
+    }
+
+    // ─────────────────────────────────────────────
+    // Igualdade (equals)
+    // ─────────────────────────────────────────────
+
+    public function test_should_consider_equal_exchange_rates_with_same_values(): void
+    {
+        $date = $this->utcDate();
+        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b    = new ExchangeRate('USD', 'BRL', '5.70', $date);
+
+        $this->assertTrue($a->equals($b));
+    }
+
+    public function test_should_consider_different_exchange_rates_with_different_rate_values(): void
+    {
+        $date = $this->utcDate();
+        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b    = new ExchangeRate('USD', 'BRL', '5.71', $date);
+
+        $this->assertFalse($a->equals($b));
+    }
+
+    public function test_should_consider_different_exchange_rates_with_different_dates(): void
+    {
+        $a = new ExchangeRate('USD', 'BRL', '5.70', $this->utcDate('2026-05-19'));
+        $b = new ExchangeRate('USD', 'BRL', '5.70', $this->utcDate('2026-05-20'));
+
+        $this->assertFalse($a->equals($b));
+    }
+
+    public function test_should_consider_different_exchange_rates_with_different_currencies(): void
+    {
+        $date = $this->utcDate();
+        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b    = new ExchangeRate('USD', 'CLP', '900', $date);
+
+        $this->assertFalse($a->equals($b));
     }
 }
