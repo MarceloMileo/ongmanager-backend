@@ -5,10 +5,17 @@ declare(strict_types=1);
 namespace App\Contexts\Shared\Domain\ValueObjects;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 
 /**
  * Value Object imutável que representa a taxa de conversão cambial entre duas moedas em uma data específica.
+ *
+ * Invariantes do domino:
+ *  - As moeadas devem ser codigos ISO 4217 validos de 3 caracteres.
+ *  - A moeada origem e dstino não podem ser iguais.
+ *  - A taxa deve ser um  valor positivo maior que zero.
+ *  - A data deve estar em UTC (conforme ADR-0003: Todos os timestamps são armazenados em UTC).
  */
 final readonly class ExchangeRate
 {
@@ -42,6 +49,13 @@ final readonly class ExchangeRate
         $rateStr = (string)$rate;
         if (bccomp($rateStr, '0', 4) <= 0) {
             throw new InvalidArgumentException('A taxa de cambio deve ser maior que zero');
+        }
+
+
+        // Toda data/hora gravada no sistema deve estar em UTC para garantir
+        // consistência em fechamentos contábeis entre fusos horários distintos.
+        if ($date->getTimezone()->getName() !== 'UTC') {
+            throw new InvalidArgumentException('A data da taxa de cambio deve estar no fuso horario UTC (ADR-0003)');
         }
 
         $this->sourceCurrency = $sourceCurrency;
@@ -92,5 +106,17 @@ final readonly class ExchangeRate
         $roundedCents = (int)round((float)$convertedAmount, 0, PHP_ROUND_HALF_UP);
 
         return new Money($roundedCents, $this->targetCurrency);
+    }
+
+    /**
+     * Dois VOs são iguais se representam a mesma taxa, entre as mesmas moedas, na mesma data.
+     * A comparação da taxa usa bcmath para evitar erros de ponto flutuante.
+     */
+    public function equals(ExchangeRate $other): bool
+    {
+        return $this->sourceCurrency === $other->sourceCurrency
+            && $this->targetCurrency === $other->targetCurrency
+            && bccomp($this->rate, $other->rate, 4) === 0
+            && $this->date->getTimestamp() === $other->date->getTimestamp();
     }
 }

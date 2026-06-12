@@ -18,7 +18,7 @@ final readonly class Money
     public function __construct(int $amountInCents, string $currency)
     {
         if (empty($currency) || strlen($currency) !== 3) {
-            throw new InvalidArgumentException('A moeda deve ser um codigg ISO 4217 de 3 caracteres');
+            throw new InvalidArgumentException('A moeda deve ser um codigo ISO 4217 de 3 caracteres');
         }
 
         $this->amountInCents = $amountInCents;
@@ -37,7 +37,7 @@ final readonly class Money
     }
 
     /**
-     * Compara se duas instacias de Money são identicas
+     * Compara se duas instancias de Money são identicas
      */
     public function equals(Money $other): bool
     {
@@ -60,7 +60,7 @@ final readonly class Money
     /**
      * Subtrai um valor monetário, garantindo consistência de moedas.
      */
-    public function substract(Money $other): self
+    public function subtract(Money $other): self
     {
         $this->assertSameCurrency($other);
 
@@ -72,7 +72,7 @@ final readonly class Money
     /**
      * Multiplica o valor por um fator decimal (ex: taxa de juros, conversão), aplicando arredondamento correto.
      */
-    public function Multiply(float|string $multiplier, int $roundingMode = PHP_ROUND_HALF_UP): self
+    public function multiply(float|string $multiplier, int $roundingMode = PHP_ROUND_HALF_UP): self
     {
         //Multiplica usando bcmath com alta precisão temporária (4 casas decimais)
         $result = bcmul((string)$this->amountInCents, (string)$multiplier, 4);
