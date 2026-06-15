@@ -20,7 +20,7 @@
 
 ### ADR 0001: Infraestrutura e Topologia
 
-- **Monólito Modular:** Backend em Laravel 11 (PHP 8.3) com separação estrita de contextos de negócio (Namespaces dedicados) em vez de microsserviços físicos prematuros.
+- **Monólito Modular:** Backend em Laravel 13 (PHP 8.3) com separação estrita de contextos de negócio (Namespaces dedicados) em vez de microsserviços físicos prematuros.
 - **Polyrepo:** Divisão rígida no GitHub Pro:
   - `ongmanager-backend` (Este repositório — Core contábil + IaC)
   - `ongmanager-web` (React SaaS Frontend)
@@ -47,13 +47,22 @@
 - **Persistência de Textos Multilíngues:** Colunas com traduções dinâmicas usam `JSONB` no PostgreSQL. Formato: `{"pt_BR": "...", "es_CL": "...", "en": "..."}`.
 - **Fuso Horário Global:** Toda data/hora persistida em UTC no banco. Conversão para horário local resolvida na camada de exibição (client-side). **Invariante de domínio:** Value Objects que recebem `DateTimeImmutable` devem validar e rejeitar timezones não-UTC.
 
+### ADR 0004: Modelagem Tática do SpendManagement
+
+- **`Expense`** — Aggregate Root com ciclo de vida: `DRAFT → SUBMITTED → APPROVED → PAID / REJECTED`
+- **`ExpenseLine`** — Entidade interna do aggregate, adicionável apenas em `DRAFT`
+- **`Receipt`** — Value Object imutável obrigatório na criação da `Expense`
+- **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
+- **`ProjectId`** — Value Object no Shared Kernel; referência entre `SpendManagement` e `ProjectDelivery` por ID (sem acoplamento direto de classes)
+- **Domain Events:** `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
+
 ---
 
 ## 3. Configuração do Ambiente de Desenvolvimento Local (Docker)
 
 Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `docker-compose.yml` estão configurados para GitHub Codespaces e máquinas físicas locais. O ambiente contém:
 
-- PHP 8.3 CLI com extensões `pdo_pgsql`, `bcmath`, `zip`, `sockets` e drivers PECL `redis` e `amqp`.
+- PHP 8.3 CLI com extensões `pdo_pgsql`, `bcmath`, `zip`, `sockets` e drivers PECL `redis` e `amqp`
 - PostgreSQL 16 Alpine
 - Redis 7 Alpine
 - RabbitMQ 3 Management
@@ -67,8 +76,10 @@ Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `doc
 
 | Item | Status |
 |---|---|
-| Instalação do Laravel 11 | ✅ Concluído |
+| Instalação do Laravel 13 | ✅ Concluído |
 | Banco de Dados PostgreSQL | ✅ Concluído — migrações iniciais executadas e conexão validada |
+
+---
 
 ### Shared Kernel — Value Objects
 
@@ -79,17 +90,11 @@ Classe `final readonly` imutável que representa valores monetários em centavos
 **Operações implementadas:** `add`, `subtract`, `multiply`, `allocate`, `isGreaterThan`, `isLessThan`, `equals`.
 
 **Invariantes do construtor:**
-- Moeda deve ser código ISO 4217 de exatamente 3 caracteres.
-- Moeda normalizada para uppercase internamente.
-- Valores negativos são permitidos (representam estornos contábeis).
-
-**Correções aplicadas na revisão de pair programming:**
-- `Multiply` → `multiply` (PSR-1: métodos em camelCase com inicial minúscula)
-- `substract` → `subtract` (grafia correta em inglês)
-- Typo `codigg` → `código` na mensagem de exceção
+- Moeda deve ser código ISO 4217 de exatamente 3 caracteres
+- Moeda normalizada para uppercase internamente
+- Valores negativos são permitidos (representam estornos contábeis)
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação válida, normalização de moeda, valor zero e negativo, rejeição de moeda inválida/vazia, `equals`, `add` (resultado + imutabilidade + moedas diferentes), `subtract` (resultado + negativo + moedas diferentes), `multiply` (arredondamento + imutabilidade), `allocate` (proporcional + soma consistente + assimétrico + empty + zero-sum), `isGreaterThan`, `isLessThan`, comparação entre moedas diferentes.
 
 ---
 
@@ -100,25 +105,77 @@ Classe `final readonly` imutável que representa a taxa de conversão cambial en
 **Operações implementadas:** `convert(Money): Money`, `equals(ExchangeRate): bool`.
 
 **Invariantes do construtor:**
-- Moedas de origem e destino: código ISO 4217 de 3 caracteres, normalizadas para uppercase.
-- Moedas de origem e destino não podem ser iguais.
-- Taxa deve ser maior que zero (validada via `bccomp`).
-- **Data deve estar em UTC** (validação via `$date->getTimezone()->getName() !== 'UTC'`) — invariante derivado da ADR-003.
-
-**Correções/adições aplicadas na revisão de pair programming:**
-- Adicionada validação de UTC no `DateTimeImmutable` recebido no construtor.
-- Adicionado método `equals()` com comparação de taxa via `bccomp` (evita erros de ponto flutuante).
+- Moedas de origem e destino: código ISO 4217 de 3 caracteres, normalizadas para uppercase
+- Moedas de origem e destino não podem ser iguais
+- Taxa deve ser maior que zero (validada via `bccomp`)
+- **Data deve estar em UTC** — invariante derivado da ADR-003
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExchangeRateTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação válida, rejeição de moeda inválida (origem e destino), moedas iguais, taxa zero, taxa negativa, data não-UTC (São Paulo e Santiago), conversão com resultado exato, conversão com arredondamento HALF_UP, incompatibilidade de moeda na conversão, `equals` (igual, taxa diferente, data diferente, moeda diferente).
 
 ---
 
-### Bounded Contexts — Em progresso
+#### ✅ `ProjectId` — `app/Contexts/Shared/Domain/ValueObjects/ProjectId.php`
+
+Classe `final readonly` imutável que representa a identidade única de um Projeto. Utilizada como referência entre Bounded Contexts (`SpendManagement` → `ProjectDelivery`) sem acoplamento direto de classes, conforme ADR-0004. Utiliza `Ramsey\Uuid` (dependência nativa do Laravel) para geração e validação de UUIDs v4.
+
+**Operações implementadas:** `generate(): self` (static factory method), `toString(): string`, `equals(ProjectId): bool`.
+
+**Invariantes do construtor:**
+- Valor deve ser um UUID válido (validado via `Uuid::isValid()`)
+- UUID normalizado para lowercase internamente
+
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ProjectIdTest.php` — ✅ 100% de cobertura.
+Primeiro ciclo TDD completo (Red → Green → Refactor) do projeto.
+
+---
+
+#### ✅ `ExpenseStatus` — `app/Contexts/Shared/Domain/ValueObjects/ExpenseStatus.php`
+
+Backed Enum (`string`) que representa os estados do ciclo de vida de uma despesa.
+
+**Casos:** `DRAFT = 'draft'`, `SUBMITTED = 'submitted'`, `APPROVED = 'approved'`, `REJECTED = 'rejected'`, `PAID = 'paid'`.
+
+**Por que Backed Enum e não Enum puro:** o valor precisa cruzar fronteiras (banco via Eloquent cast, eventos via serialização JSON). `ExpenseStatus::from('draft')` reconstrói o estado a partir do banco de forma trivial.
+
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExpenseStatusTest.php` — ✅ 100% de cobertura.
+Casos cobertos: valor correto para cada caso, reconstrução via `from()`, rejeição de valor inválido com `\ValueError`.
+
+---
+
+#### ✅ `Receipt` — `app/Contexts/Shared/Domain/ValueObjects/Receipt.php`
+
+Classe `final readonly` imutável que representa o comprovante fiscal anexado a uma despesa. Obrigatório na criação de uma `Expense` — um comprovante é um fato histórico imutável.
+
+**Atributos obrigatórios:** `fileReference` (string), `documentValue` (Money > 0).
+
+**Atributos opcionais:** `documentNumber` (?string), `issuerIdentifier` (?string), `issuedAt` (?DateTimeImmutable UTC).
+
+**Invariantes do construtor:**
+- `fileReference` não pode ser vazio
+- `documentValue` deve ser maior que zero (comprovante com valor zero ou negativo não faz sentido fiscal)
+- `issuedAt`, quando fornecido, deve estar em UTC (ADR-003)
+- Validação de filesystem (arquivo existe) é responsabilidade da camada de Infrastructure, não do domínio
+
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ReceiptTest.php` — ✅ 100% de cobertura.
+Casos cobertos: criação com obrigatórios, rejeição de fileReference vazio, rejeição de valor negativo, rejeição de valor zero, opcionais null por padrão, opcionais fornecidos, imutabilidade.
+
+---
+
+### SpendManagement — Em progresso
+
+| Componente | Tipo | Status |
+|---|---|---|
+| `ExpenseStatus` | Enum | ✅ Concluído |
+| `Receipt` | Value Object | ✅ Concluído |
+| `ExpenseLine` | Entidade | 🔜 Próximo |
+| `Expense` | Aggregate Root | ⏳ A seguir |
+| `CostDistribution` | Value Object | ⏳ A seguir |
+| `IExpenseRepository` | Interface | ⏳ Não iniciado |
+
+### Demais Bounded Contexts
 
 | Contexto | Status |
 |---|---|
-| `SpendManagement` | 🔜 Próximo — modelagem de `Expense`, `ExpenseLine`, `CostDistribution` |
 | `BudgetAllocation` | ⏳ Não iniciado |
 | `FiscalCompliance` | ⏳ Não iniciado |
 | `Fundraising` | ⏳ Não iniciado |
@@ -128,16 +185,21 @@ Casos cobertos: criação válida, rejeição de moeda inválida (origem e desti
 
 ## 5. Convenções e Padrões Estabelecidos no Código
 
-- **Testes escritos em inglês** (nomes de métodos e asserções).
-- **Um único motivo de falha por teste** — asserções de comportamento e imutabilidade em testes separados.
-- **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()` no `ExchangeRateTest`).
-- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios (ex: negativos permitidos) devem ter um docblock explicando o porquê no contexto do negócio.
-- **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR.
+- **TDD obrigatório** — testes escritos antes da implementação (Red → Green → Refactor)
+- **Testes escritos em inglês** (nomes de métodos e asserções)
+- **Um único motivo de falha por teste** — asserções de comportamento e imutabilidade em testes separados
+- **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()`)
+- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios devem ter docblock explicando o porquê no contexto do negócio
+- **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR
+- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore` — testes e implementação em commits separados
+- **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
+- **Getters com prefixo `get`** — padrão adotado em todo o projeto (ex: `getAmountInCents()`, `getFileReference()`)
 
 ---
 
 ## 6. Próximos Passos de Engenharia
 
-1. **Mapeamento tático do `SpendManagement`:** Modelar as entidades `Expense`, `ExpenseLine` e o objeto de valor `CostDistribution`, aplicando as regras da Seção 2 do documento de Regras de Domínio (Consistência Matemática do Rateio de Custos).
-2. **Implementar a Penny Rounding Rule** no contexto de rateio misto multimoeda, utilizando `Money` + `ExchangeRate` em conjunto.
-3. **Definir interfaces de repositório** (`IExpenseRepository`) na camada de `Domain` do `SpendManagement`.
+1. **`ExpenseLine`** — primeira Entidade do projeto; tem ID próprio (UUID), aponta para `ProjectId`, suporta rateio `FIXED_AMOUNT` ou `PERCENTAGE`, pode carregar `ExchangeRate` quando multimoeda
+2. **`Expense`** — Aggregate Root com state machine e invariantes de domínio
+3. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
+4. **`IExpenseRepository`** — Interface de repositório na camada de Domain
