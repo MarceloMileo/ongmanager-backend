@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Contexts\Shared\Domain\ValueObjects;
 
 use DateTimeImmutable;
-use DateTimeZone;
 use InvalidArgumentException;
 
 /**
@@ -50,7 +49,6 @@ final readonly class ExchangeRate
         if (bccomp($rateStr, '0', 4) <= 0) {
             throw new InvalidArgumentException('A taxa de cambio deve ser maior que zero');
         }
-
 
         // Toda data/hora gravada no sistema deve estar em UTC para garantir
         // consistência em fechamentos contábeis entre fusos horários distintos.
