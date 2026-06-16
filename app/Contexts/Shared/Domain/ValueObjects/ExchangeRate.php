@@ -50,6 +50,7 @@ final readonly class ExchangeRate
             throw new InvalidArgumentException('A taxa de cambio deve ser maior que zero');
         }
 
+
         // Toda data/hora gravada no sistema deve estar em UTC para garantir
         // consistência em fechamentos contábeis entre fusos horários distintos.
         if ($date->getTimezone()->getName() !== 'UTC') {
