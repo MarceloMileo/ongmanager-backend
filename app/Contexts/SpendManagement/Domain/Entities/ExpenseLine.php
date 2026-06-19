@@ -20,6 +20,13 @@ class ExpenseLine
     private ?ExchangeRate $exchangeRate;
     private DistributionType $distributionType;
 
+    private function assertValidAmount(Money $amount): void
+    {
+        if ($amount->getAmountInCents() <= 0) {
+            throw new InvalidArgumentException("O valor da linha de despesa deve ser maior que zero.");
+        }
+    }
+
     public function __construct(
         string $id,
         ProjectId $projectId,
@@ -31,9 +38,7 @@ class ExpenseLine
             throw new InvalidArgumentException(sprintf('O valor "%s" não é um UUID válido.', $id));
         }
 
-        if ($amount->getAmountInCents() <= 0) {
-            throw new InvalidArgumentException("O valor da linha de despesa deve ser maior que zero.");
-        }
+        $this->assertValidAmount($amount);
 
         $this->id = strtolower($id);
         $this->projectId = $projectId;
@@ -70,5 +75,21 @@ class ExpenseLine
     public function equals(ExpenseLine $other): bool
     {
         return $this->id === $other->getId();
+    }
+
+    public function changeAmount(Money $amount): void
+    {
+        $this->assertValidAmount($amount);
+        $this->amount = $amount;
+    }
+
+    public function changeProject(ProjectId $projectId): void
+    {
+        $this->projectId = $projectId;
+    }
+
+    public function changeExchangeRate(?ExchangeRate $exchangeRate): void
+    {
+        $this->exchangeRate = $exchangeRate;
     }
 }
