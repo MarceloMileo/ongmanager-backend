@@ -168,7 +168,7 @@ Classe `final readonly` imutável que representa o comprovante fiscal anexado a 
 
 ---
 
-### SpendManagement — Em progresso
+### SpendManagement
 
 #### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
 
@@ -183,17 +183,18 @@ Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa 
 
 **Invariantes do construtor:**
 - `id` deve ser UUID válido (via `Ramsey\Uuid`)
-- `amount` deve ser maior que zero
-- Compatibilidade de moedas entre `amount` e `exchangeRate` é responsabilidade da `Expense` (Aggregate Root)
+- `amount` deve ser maior que zero — validação extraída para `assertValidAmount()` (DRY)
+- Compatibilidade de moedas entre `amount` e `exchangeRate` é responsabilidade da `Expense`
 
-**Operações implementadas:** `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`, `equals(ExpenseLine): bool`.
-
-**`equals()`:** compara pelo **ID** — comportamento de Entidade (diferente de VO que compara atributos).
+**Operações implementadas:**
+- Getters: `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`
+- Alteração: `changeAmount(Money)`, `changeProject(ProjectId)`, `changeExchangeRate(?ExchangeRate)`
+- Identidade: `equals(ExpenseLine): bool` — compara pelo **ID**
 
 **Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseLineTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação com ExchangeRate, criação sem ExchangeRate, equals (iguais), equals (diferentes), rejeição de UUID inválido.
+Casos cobertos: criação com/sem ExchangeRate, equals (iguais + diferentes), rejeição de UUID inválido, changeAmount (válido + inválido), changeProject, changeExchangeRate.
 
-**Próximo:** implementar métodos de alteração `changeAmount()`, `changeProject()`, `changeExchangeRate()`.
+**Pendente:** refactor do teste — extrair criação repetida para `setUp()`.
 
 ---
 
@@ -202,8 +203,8 @@ Casos cobertos: criação com ExchangeRate, criação sem ExchangeRate, equals (
 | `ExpenseStatus` | Enum | ✅ Concluído |
 | `DistributionType` | Enum | ✅ Concluído |
 | `Receipt` | Value Object | ✅ Concluído |
-| `ExpenseLine` | Entidade | 🔄 Em andamento — métodos de alteração pendentes |
-| `Expense` | Aggregate Root | ⏳ A seguir |
+| `ExpenseLine` | Entidade | ✅ Concluído |
+| `Expense` | Aggregate Root | 🔜 Próximo |
 | `CostDistribution` | Value Object | ⏳ A seguir |
 | `IExpenseRepository` | Interface | ⏳ Não iniciado |
 
@@ -223,19 +224,22 @@ Casos cobertos: criação com ExchangeRate, criação sem ExchangeRate, equals (
 - **TDD obrigatório** — testes escritos antes da implementação (Red → Green → Refactor)
 - **Testes escritos em inglês** (nomes de métodos e asserções)
 - **Um único motivo de falha por teste** — asserções de comportamento e imutabilidade em testes separados
+- **`setUp()` do PHPUnit** — usado para eliminar repetição de criação de objetos nos testes; cada teste recebe instância fresca
 - **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()`)
-- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios devem ter docblock explicando o porquê no contexto do negócio
+- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios devem ter docblock explicando o porquê
 - **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR
-- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style` — testes e implementação em commits separados
+- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style`
+- **`git commit --amend`** — corrige o último commit antes do push. Após o push, não usar `force push` em branches compartilhadas
 - **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
 - **Getters com prefixo `get`** — padrão adotado em todo o projeto
 - **Parâmetros opcionais sempre no final do construtor** com `?Type $param = null`
+- **DRY em validações** — validações repetidas extraídas para métodos privados (ex: `assertValidAmount()`)
 
 ---
 
 ## 6. Próximos Passos de Engenharia
 
-1. **Métodos de alteração da `ExpenseLine`** — `changeAmount()`, `changeProject()`, `changeExchangeRate()` com TDD
-2. **`Expense`** — Aggregate Root com state machine e invariantes de domínio
+1. **Refactor `ExpenseLineTest`** — extrair criação repetida para `setUp()` com commit `refactor:`
+2. **`Expense`** — Aggregate Root com state machine, invariantes de domínio e emissão de Domain Events
 3. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
 4. **`IExpenseRepository`** — Interface de repositório na camada de Domain

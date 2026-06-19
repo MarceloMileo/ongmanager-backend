@@ -19,8 +19,8 @@
 |---|---|---|
 | Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `Receipt` implementados |
 | Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
-| Entities | ✅ Aplicado | `ExpenseLine` implementada — primeira Entidade do projeto |
-| Aggregate Root | 🔄 Em estudo | `Expense` mapeada, implementação é o próximo grande passo |
+| Entities | ✅ Concluído | `ExpenseLine` implementada com getters, equals e métodos de alteração |
+| Aggregate Root | 🔜 Próximo | `Expense` — próximo grande passo |
 | Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
 | Repositories | 🔜 Próximo | Interface no Domain, implementação no Infrastructure |
 | Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
@@ -123,13 +123,15 @@ Use Entidade quando o conceito:
 | Exemplo no projeto | `Money(100, 'BRL')` | `ExpenseLine(uuid, projectId, amount)` |
 
 ### Exemplos aplicados no ONGManager
-- `ExpenseLine` — fatia de rateio de uma despesa; tem identidade própria (UUID), pode ser adicionada/removida enquanto `Expense` estiver em `DRAFT`, e seus atributos podem ser alterados via métodos específicos
+- `ExpenseLine` — fatia de rateio de uma despesa; tem identidade própria (UUID), pode ser adicionada/removida enquanto `Expense` estiver em `DRAFT`, e seus atributos podem ser alterados via métodos específicos (`changeAmount`, `changeProject`, `changeExchangeRate`)
 
 ### Padrões aprendidos na prática
 - ID sempre validado no construtor via `Uuid::isValid()` + normalizado para lowercase
 - `equals()` compara `$this->id === $other->getId()` — nunca os atributos
-- Validações que dependem de contexto externo (ex: moeda base da ONG) ficam no **Aggregate Root**, não na Entidade
+- Validações que dependem de contexto externo ficam no **Aggregate Root**, não na Entidade
 - Value Objects ricos se auto-validam — a Entidade não precisa revalidar o que o VO já garante
+- Validações repetidas (construtor + método de alteração) extraídas para métodos privados (`assertValidAmount()`) — princípio DRY
+- Métodos de alteração aplicam as mesmas invariantes do construtor
 
 ---
 
@@ -218,9 +220,45 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 | Moeda base compatível com ExchangeRate | Aggregate Root (`Expense`) |
 | Projeto existe e está ativo | Application Layer via `IProjectValidator` |
 
+### setUp() no PHPUnit
+
+O método `setUp()` é executado **antes de cada teste** — elimina repetição de criação de objetos mantendo isolamento entre testes. Cada teste recebe uma instância fresca, sem risco de estado compartilhado.
+
+```php
+protected function setUp(): void
+{
+    $this->expenseLine = new ExpenseLine(...);
+}
+```
+
+Testes que precisam de cenário diferente do padrão ainda criam sua própria instância localmente.
+
 ---
 
-## 10. Dúvidas e Descobertas
+## 10. Git — Boas Práticas
+
+### Commits semânticos
+| Prefixo | Quando usar |
+|---|---|
+| `feat` | Nova funcionalidade |
+| `fix` | Correção de bug |
+| `test` | Adição ou correção de testes |
+| `refactor` | Reestruturação sem mudar comportamento |
+| `style` | Formatação, imports, espaços — sem lógica |
+| `docs` | Documentação |
+| `chore` | Tarefas de manutenção sem tocar código da aplicação |
+
+### Corrigir commit antes do push
+```bash
+git commit --amend -m "mensagem corrigida"
+```
+
+### Após o push
+Não usar `git push --force` em branches compartilhadas — reescreve histórico remoto e causa problemas para outros devs. Em branch solo é possível mas deve ser evitado como hábito.
+
+---
+
+## 11. Dúvidas e Descobertas
 
 | # | Dúvida / Descoberta | Status |
 |---|---|---|
@@ -229,15 +267,17 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 | 3 | Por que `DateTimeImmutable` e não `DateTime`? | ✅ `DateTime` é mutável — viola imutabilidade do VO |
 | 4 | `ExpenseLine` é entidade ou VO? | ✅ Entidade — tem identidade e pode ser adicionada/removida individualmente |
 | 5 | Como contextos se comunicam sem acoplamento? | ✅ Via Domain Events assíncronos + referência por ID (ProjectId) |
-| 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — é static factory method. Factory Pattern é uma classe dedicada para criação complexa |
+| 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — é static factory method |
 | 7 | Enum puro ou Backed Enum para estados? | ✅ Backed Enum quando o valor cruza fronteiras (banco, API, eventos) |
-| 8 | Validar se arquivo existe no domínio? | ✅ Não — filesystem é infraestrutura. Domínio só valida que a referência não é vazia |
-| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — é responsabilidade da `Expense` (Aggregate Root) que conhece a moeda base da ONG |
-| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `?Type` aceita null mas ainda exige que seja passado. `= null` torna verdadeiramente opcional |
+| 8 | Validar se arquivo existe no domínio? | ✅ Não — filesystem é infraestrutura |
+| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — responsabilidade da `Expense` (Aggregate Root) |
+| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `?Type` aceita null mas ainda exige que seja passado |
+| 11 | Validação repetida no construtor e no método de alteração? | ✅ Extrair para método privado (`assertValidAmount()`) — princípio DRY |
+| 12 | `setUp()` no PHPUnit compartilha estado entre testes? | ✅ Não — é executado antes de **cada** teste, instância sempre fresca |
 
 ---
 
-## 11. Referências e Leituras
+## 12. Referências e Leituras
 
 - **Livro base:** *Domain-Driven Design* — Eric Evans (Livro Azul)
 - **Livro prático:** *Implementing Domain-Driven Design* — Vaughn Vernon (Livro Vermelho)
