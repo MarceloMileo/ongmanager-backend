@@ -125,7 +125,6 @@ Classe `final readonly` imutável que representa a identidade única de um Proje
 - UUID normalizado para lowercase internamente
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ProjectIdTest.php` — ✅ 100% de cobertura.
-Primeiro ciclo TDD completo (Red → Green → Refactor) do projeto.
 
 ---
 
@@ -135,16 +134,25 @@ Backed Enum (`string`) que representa os estados do ciclo de vida de uma despesa
 
 **Casos:** `DRAFT = 'draft'`, `SUBMITTED = 'submitted'`, `APPROVED = 'approved'`, `REJECTED = 'rejected'`, `PAID = 'paid'`.
 
-**Por que Backed Enum e não Enum puro:** o valor precisa cruzar fronteiras (banco via Eloquent cast, eventos via serialização JSON). `ExpenseStatus::from('draft')` reconstrói o estado a partir do banco de forma trivial.
-
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExpenseStatusTest.php` — ✅ 100% de cobertura.
-Casos cobertos: valor correto para cada caso, reconstrução via `from()`, rejeição de valor inválido com `\ValueError`.
+
+---
+
+#### ✅ `DistributionType` — `app/Contexts/Shared/Domain/ValueObjects/DistributionType.php`
+
+Backed Enum (`string`) que representa o tipo de distribuição de custo de uma linha de despesa.
+
+**Casos:** `FIXED_AMOUNT = 'fixed_amount'`, `PERCENTAGE = 'percentage'`.
+
+**Por que Shared Kernel:** pode ser reaproveitado por outros contextos no futuro além do `SpendManagement`.
+
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/DistributionTypeTest.php` — ✅ 100% de cobertura.
 
 ---
 
 #### ✅ `Receipt` — `app/Contexts/Shared/Domain/ValueObjects/Receipt.php`
 
-Classe `final readonly` imutável que representa o comprovante fiscal anexado a uma despesa. Obrigatório na criação de uma `Expense` — um comprovante é um fato histórico imutável.
+Classe `final readonly` imutável que representa o comprovante fiscal anexado a uma despesa.
 
 **Atributos obrigatórios:** `fileReference` (string), `documentValue` (Money > 0).
 
@@ -152,22 +160,49 @@ Classe `final readonly` imutável que representa o comprovante fiscal anexado a 
 
 **Invariantes do construtor:**
 - `fileReference` não pode ser vazio
-- `documentValue` deve ser maior que zero (comprovante com valor zero ou negativo não faz sentido fiscal)
+- `documentValue` deve ser maior que zero
 - `issuedAt`, quando fornecido, deve estar em UTC (ADR-003)
-- Validação de filesystem (arquivo existe) é responsabilidade da camada de Infrastructure, não do domínio
+- Validação de filesystem é responsabilidade da Infrastructure, não do domínio
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ReceiptTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação com obrigatórios, rejeição de fileReference vazio, rejeição de valor negativo, rejeição de valor zero, opcionais null por padrão, opcionais fornecidos, imutabilidade.
 
 ---
 
 ### SpendManagement — Em progresso
 
+#### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
+
+Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa apontando para um projeto específico. Tem identidade própria (UUID) e pode ser adicionada/removida enquanto a `Expense` estiver em `DRAFT`.
+
+**Atributos:**
+- `id` — UUID único e imutável
+- `projectId` — `ProjectId` (referência ao `ProjectDelivery` por ID — ADR-002)
+- `amount` — `Money` na moeda original da linha (sempre positivo)
+- `distributionType` — `DistributionType` enum
+- `exchangeRate` — `?ExchangeRate` opcional (obrigatória quando moeda difere da base — validado pela `Expense`)
+
+**Invariantes do construtor:**
+- `id` deve ser UUID válido (via `Ramsey\Uuid`)
+- `amount` deve ser maior que zero
+- Compatibilidade de moedas entre `amount` e `exchangeRate` é responsabilidade da `Expense` (Aggregate Root)
+
+**Operações implementadas:** `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`, `equals(ExpenseLine): bool`.
+
+**`equals()`:** compara pelo **ID** — comportamento de Entidade (diferente de VO que compara atributos).
+
+**Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseLineTest.php` — ✅ 100% de cobertura.
+Casos cobertos: criação com ExchangeRate, criação sem ExchangeRate, equals (iguais), equals (diferentes), rejeição de UUID inválido.
+
+**Próximo:** implementar métodos de alteração `changeAmount()`, `changeProject()`, `changeExchangeRate()`.
+
+---
+
 | Componente | Tipo | Status |
 |---|---|---|
 | `ExpenseStatus` | Enum | ✅ Concluído |
+| `DistributionType` | Enum | ✅ Concluído |
 | `Receipt` | Value Object | ✅ Concluído |
-| `ExpenseLine` | Entidade | 🔜 Próximo |
+| `ExpenseLine` | Entidade | 🔄 Em andamento — métodos de alteração pendentes |
 | `Expense` | Aggregate Root | ⏳ A seguir |
 | `CostDistribution` | Value Object | ⏳ A seguir |
 | `IExpenseRepository` | Interface | ⏳ Não iniciado |
@@ -191,15 +226,16 @@ Casos cobertos: criação com obrigatórios, rejeição de fileReference vazio, 
 - **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()`)
 - **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios devem ter docblock explicando o porquê no contexto do negócio
 - **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR
-- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore` — testes e implementação em commits separados
+- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style` — testes e implementação em commits separados
 - **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
-- **Getters com prefixo `get`** — padrão adotado em todo o projeto (ex: `getAmountInCents()`, `getFileReference()`)
+- **Getters com prefixo `get`** — padrão adotado em todo o projeto
+- **Parâmetros opcionais sempre no final do construtor** com `?Type $param = null`
 
 ---
 
 ## 6. Próximos Passos de Engenharia
 
-1. **`ExpenseLine`** — primeira Entidade do projeto; tem ID próprio (UUID), aponta para `ProjectId`, suporta rateio `FIXED_AMOUNT` ou `PERCENTAGE`, pode carregar `ExchangeRate` quando multimoeda
+1. **Métodos de alteração da `ExpenseLine`** — `changeAmount()`, `changeProject()`, `changeExchangeRate()` com TDD
 2. **`Expense`** — Aggregate Root com state machine e invariantes de domínio
 3. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
 4. **`IExpenseRepository`** — Interface de repositório na camada de Domain

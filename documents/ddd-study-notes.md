@@ -18,12 +18,12 @@
 | Conceito | Status | Notas |
 |---|---|---|
 | Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `Receipt` implementados |
-| Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus` implementado |
-| Entities | 🔄 Em andamento | `ExpenseLine` é o próximo — primeira entidade do projeto |
-| Aggregate Root | 🔄 Em estudo | `Expense` mapeada, implementação após `ExpenseLine` |
+| Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
+| Entities | ✅ Aplicado | `ExpenseLine` implementada — primeira Entidade do projeto |
+| Aggregate Root | 🔄 Em estudo | `Expense` mapeada, implementação é o próximo grande passo |
 | Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
 | Repositories | 🔜 Próximo | Interface no Domain, implementação no Infrastructure |
-| Bounded Contexts | 🔜 Próximo | Separação entre `SpendManagement` e `ProjectDelivery` |
+| Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
 | Domain Services | ⏳ Não iniciado | |
 | Application Services / Use Cases | ⏳ Não iniciado | |
 | CQRS | ⏳ Não iniciado | |
@@ -61,7 +61,7 @@ Use Value Object quando o conceito:
 - Datas em Value Objects devem ser `DateTimeImmutable` — e validadas como UTC (ADR-003)
 - Implementar `equals()` em todo Value Object para comparação semântica
 - Self-imports desnecessários: classes no mesmo namespace não precisam de `use`
-- Atributos opcionais devem ser tipados como `?Type` e ter `null` como default no construtor
+- Atributos opcionais: `?Type $param = null` — sempre no final do construtor
 
 ---
 
@@ -85,11 +85,13 @@ Um Backed Enum é um Enum nativo do PHP 8.1+ onde cada caso tem um valor escalar
 
 ### Exemplos aplicados no ONGManager
 - `ExpenseStatus: string` — estados da despesa persistidos no banco e serializados em eventos
+- `DistributionType: string` — tipo de rateio (`fixed_amount`, `percentage`), reutilizável entre contextos
 
 ### Padrões aprendidos na prática
 - `Enum::from('valor')` — reconstrói o caso a partir de string; lança `\ValueError` se inválido
 - `Enum::tryFrom('valor')` — reconstrói ou retorna `null` se inválido (não lança exceção)
 - Testes de Enum verificam: valor correto por caso, reconstrução via `from()`, rejeição via `\ValueError`
+- Enums reutilizáveis entre contextos pertencem ao **Shared Kernel**
 
 ---
 
@@ -103,6 +105,7 @@ Uma Entidade é um objeto que tem **identidade própria** — ela é rastreada a
 - Pode **mudar de estado** ao longo do tempo
 - A igualdade é definida pelo ID, não pelos atributos
 - Também deve ser PHP puro no domínio
+- **Não usa `readonly`** — precisa poder alterar atributos
 
 ### Quando usar
 Use Entidade quando o conceito:
@@ -115,12 +118,18 @@ Use Entidade quando o conceito:
 | | Value Object | Entidade |
 |---|---|---|
 | Identidade | Pelos valores | Pelo ID (UUID) |
-| Imutabilidade | Total (`readonly`) | Parcial — estado pode mudar |
+| Imutabilidade | Total (`final readonly`) | Parcial — estado pode mudar |
 | Igualdade | `equals()` compara atributos | `equals()` compara IDs |
-| Exemplo | `Money(100, 'BRL')` | `ExpenseLine(uuid, projectId, amount)` |
+| Exemplo no projeto | `Money(100, 'BRL')` | `ExpenseLine(uuid, projectId, amount)` |
 
-### Exemplos mapeados no ONGManager
-- `ExpenseLine` — fatia de rateio de uma despesa; tem identidade própria e pode ser adicionada/removida individualmente enquanto `Expense` estiver em `DRAFT`
+### Exemplos aplicados no ONGManager
+- `ExpenseLine` — fatia de rateio de uma despesa; tem identidade própria (UUID), pode ser adicionada/removida enquanto `Expense` estiver em `DRAFT`, e seus atributos podem ser alterados via métodos específicos
+
+### Padrões aprendidos na prática
+- ID sempre validado no construtor via `Uuid::isValid()` + normalizado para lowercase
+- `equals()` compara `$this->id === $other->getId()` — nunca os atributos
+- Validações que dependem de contexto externo (ex: moeda base da ONG) ficam no **Aggregate Root**, não na Entidade
+- Value Objects ricos se auto-validam — a Entidade não precisa revalidar o que o VO já garante
 
 ---
 
@@ -141,6 +150,7 @@ Um Aggregate é um **cluster de entidades e value objects** tratado como uma ún
   - Garante que a soma das `ExpenseLine` iguala o total da despesa
   - Garante que nenhuma linha seja adicionada após o status `DRAFT`
   - Garante que aprovador ≠ submissor (segregação de papéis)
+  - Valida compatibilidade de moedas entre `ExpenseLine.amount` e `ExpenseLine.exchangeRate`
   - Emite Domain Events quando muda de estado
 
 ---
@@ -198,6 +208,16 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 
 > `ProjectId::generate()` é um **static factory method** — não confundir com o Factory Pattern (GoF).
 
+### Responsabilidade de validação por camada
+
+| Validação | Responsável |
+|---|---|
+| Formato de UUID | Entidade / VO no construtor |
+| Valor monetário positivo | Entidade / VO no construtor |
+| Arquivo existe no disco | Infrastructure |
+| Moeda base compatível com ExchangeRate | Aggregate Root (`Expense`) |
+| Projeto existe e está ativo | Application Layer via `IProjectValidator` |
+
 ---
 
 ## 10. Dúvidas e Descobertas
@@ -212,6 +232,8 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 | 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — é static factory method. Factory Pattern é uma classe dedicada para criação complexa |
 | 7 | Enum puro ou Backed Enum para estados? | ✅ Backed Enum quando o valor cruza fronteiras (banco, API, eventos) |
 | 8 | Validar se arquivo existe no domínio? | ✅ Não — filesystem é infraestrutura. Domínio só valida que a referência não é vazia |
+| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — é responsabilidade da `Expense` (Aggregate Root) que conhece a moeda base da ONG |
+| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `?Type` aceita null mas ainda exige que seja passado. `= null` torna verdadeiramente opcional |
 
 ---
 
