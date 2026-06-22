@@ -54,6 +54,7 @@
 - **`Receipt`** — Value Object imutável obrigatório na criação da `Expense`
 - **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
 - **`ProjectId`** — Value Object no Shared Kernel; referência entre `SpendManagement` e `ProjectDelivery` por ID (sem acoplamento direto de classes)
+- **`UserId`** — Value Object no Shared Kernel; identifica submissor e aprovador da `Expense`
 - **Domain Events:** `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
 
 ---
@@ -116,15 +117,23 @@ Classe `final readonly` imutável que representa a taxa de conversão cambial en
 
 #### ✅ `ProjectId` — `app/Contexts/Shared/Domain/ValueObjects/ProjectId.php`
 
-Classe `final readonly` imutável que representa a identidade única de um Projeto. Utilizada como referência entre Bounded Contexts (`SpendManagement` → `ProjectDelivery`) sem acoplamento direto de classes, conforme ADR-0004. Utiliza `Ramsey\Uuid` (dependência nativa do Laravel) para geração e validação de UUIDs v4.
+Classe `final readonly` imutável que representa a identidade única de um Projeto. Utilizada como referência entre Bounded Contexts (`SpendManagement` → `ProjectDelivery`) sem acoplamento direto de classes, conforme ADR-0004. Utiliza `Ramsey\Uuid` para geração e validação de UUIDs v4.
 
-**Operações implementadas:** `generate(): self` (static factory method), `toString(): string`, `equals(ProjectId): bool`.
-
-**Invariantes do construtor:**
-- Valor deve ser um UUID válido (validado via `Uuid::isValid()`)
-- UUID normalizado para lowercase internamente
+**Operações implementadas:** `generate(): self`, `toString(): string`, `equals(ProjectId): bool`.
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ProjectIdTest.php` — ✅ 100% de cobertura.
+
+---
+
+#### ✅ `UserId` — `app/Contexts/Shared/Domain/ValueObjects/UserId.php`
+
+Classe `final readonly` imutável que representa a identidade única de um Usuário. Utilizada na `Expense` para identificar `submitterId` e `approverId` — garantindo a invariante de segregação de papéis (aprovador ≠ submissor).
+
+**Por que `UserId` genérico e não `SubmitterId`/`ApproverId` separados:** um usuário pode ser submissor em uma despesa e aprovador em outra — o papel é contextual, não intrínseco ao usuário.
+
+**Operações implementadas:** `generate(): self`, `toString(): string`, `equals(UserId): bool`.
+
+**Testes:** `tests/Unit/Shared/Domain/ValueObjects/UserIdTest.php` — ✅ 100% de cobertura.
 
 ---
 
@@ -144,8 +153,6 @@ Backed Enum (`string`) que representa o tipo de distribuição de custo de uma l
 
 **Casos:** `FIXED_AMOUNT = 'fixed_amount'`, `PERCENTAGE = 'percentage'`.
 
-**Por que Shared Kernel:** pode ser reaproveitado por outros contextos no futuro além do `SpendManagement`.
-
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/DistributionTypeTest.php` — ✅ 100% de cobertura.
 
 ---
@@ -158,12 +165,6 @@ Classe `final readonly` imutável que representa o comprovante fiscal anexado a 
 
 **Atributos opcionais:** `documentNumber` (?string), `issuerIdentifier` (?string), `issuedAt` (?DateTimeImmutable UTC).
 
-**Invariantes do construtor:**
-- `fileReference` não pode ser vazio
-- `documentValue` deve ser maior que zero
-- `issuedAt`, quando fornecido, deve estar em UTC (ADR-003)
-- Validação de filesystem é responsabilidade da Infrastructure, não do domínio
-
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ReceiptTest.php` — ✅ 100% de cobertura.
 
 ---
@@ -172,19 +173,14 @@ Classe `final readonly` imutável que representa o comprovante fiscal anexado a 
 
 #### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
 
-Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa apontando para um projeto específico. Tem identidade própria (UUID) e pode ser adicionada/removida enquanto a `Expense` estiver em `DRAFT`.
+Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa apontando para um projeto específico.
 
 **Atributos:**
 - `id` — UUID único e imutável
-- `projectId` — `ProjectId` (referência ao `ProjectDelivery` por ID — ADR-002)
-- `amount` — `Money` na moeda original da linha (sempre positivo)
-- `distributionType` — `DistributionType` enum
-- `exchangeRate` — `?ExchangeRate` opcional (obrigatória quando moeda difere da base — validado pela `Expense`)
-
-**Invariantes do construtor:**
-- `id` deve ser UUID válido (via `Ramsey\Uuid`)
-- `amount` deve ser maior que zero — validação extraída para `assertValidAmount()` (DRY)
-- Compatibilidade de moedas entre `amount` e `exchangeRate` é responsabilidade da `Expense`
+- `projectId` — `ProjectId`
+- `amount` — `Money` sempre positivo
+- `distributionType` — `DistributionType`
+- `exchangeRate` — `?ExchangeRate` opcional
 
 **Operações implementadas:**
 - Getters: `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`
@@ -192,9 +188,7 @@ Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa 
 - Identidade: `equals(ExpenseLine): bool` — compara pelo **ID**
 
 **Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseLineTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação com/sem ExchangeRate, equals (iguais + diferentes), rejeição de UUID inválido, changeAmount (válido + inválido), changeProject, changeExchangeRate.
-
-**Pendente:** refactor do teste — extrair criação repetida para `setUp()`.
+Teste refatorado com `setUp()` e `$projectId` como propriedade da classe.
 
 ---
 
@@ -219,27 +213,39 @@ Casos cobertos: criação com/sem ExchangeRate, equals (iguais + diferentes), re
 
 ---
 
-## 5. Convenções e Padrões Estabelecidos no Código
+## 5. Decisões de Design do `Expense` Aggregate Root
 
-- **TDD obrigatório** — testes escritos antes da implementação (Red → Green → Refactor)
-- **Testes escritos em inglês** (nomes de métodos e asserções)
-- **Um único motivo de falha por teste** — asserções de comportamento e imutabilidade em testes separados
-- **`setUp()` do PHPUnit** — usado para eliminar repetição de criação de objetos nos testes; cada teste recebe instância fresca
-- **Helper methods privados nos testes** para reduzir repetição (ex: `utcDate()`)
-- **Comentários de domínio nos testes** — testes que cobrem comportamentos não-óbvios devem ter docblock explicando o porquê
-- **Mensagens de exceção em português** — todas as exceções de domínio são lançadas em pt-BR
-- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style`
-- **`git commit --amend`** — corrige o último commit antes do push. Após o push, não usar `force push` em branches compartilhadas
-- **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
-- **Getters com prefixo `get`** — padrão adotado em todo o projeto
-- **Parâmetros opcionais sempre no final do construtor** com `?Type $param = null`
-- **DRY em validações** — validações repetidas extraídas para métodos privados (ex: `assertValidAmount()`)
+Decisões tomadas em sessão de modelagem — prontas para implementação:
+
+- **Construtor recebe:** `id` (UUID), `receipt` (Receipt), `totalAmount` (Money), `submitterId` (UserId)
+- **Status inicial:** sempre `DRAFT` — definido internamente, não recebido como parâmetro
+- **`ExpenseLine`:** começa como array vazio — adicionadas via `addLine()` após criação
+- **`approverId`:** definido no momento da aprovação, não na criação
+- **Invariante de segregação:** `approverId` deve ser diferente de `submitterId`
+- **Invariante de consistência:** soma das `ExpenseLine` deve igualar `totalAmount`
+- **Invariante de estado:** `addLine()` só permitido em `DRAFT`
 
 ---
 
-## 6. Próximos Passos de Engenharia
+## 6. Convenções e Padrões Estabelecidos no Código
 
-1. **Refactor `ExpenseLineTest`** — extrair criação repetida para `setUp()` com commit `refactor:`
-2. **`Expense`** — Aggregate Root com state machine, invariantes de domínio e emissão de Domain Events
-3. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
-4. **`IExpenseRepository`** — Interface de repositório na camada de Domain
+- **TDD obrigatório** — testes escritos antes da implementação (Red → Green → Refactor)
+- **Testes escritos em inglês** (nomes de métodos e asserções)
+- **Um único motivo de falha por teste**
+- **`setUp()` do PHPUnit** — elimina repetição; propriedades de suporte (ex: `$projectId`) também extraídas
+- **Helper methods privados nos testes** (ex: `utcDate()`)
+- **Mensagens de exceção em português**
+- **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style`
+- **`git commit --amend`** — corrige último commit antes do push
+- **Self-imports desnecessários removidos**
+- **Getters com prefixo `get`**
+- **Parâmetros opcionais sempre no final** com `?Type $param = null`
+- **DRY em validações** — extraídas para métodos privados
+
+---
+
+## 7. Próximos Passos de Engenharia
+
+1. **`Expense`** — Aggregate Root com state machine, invariantes de domínio e emissão de Domain Events
+2. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
+3. **`IExpenseRepository`** — Interface de repositório na camada de Domain

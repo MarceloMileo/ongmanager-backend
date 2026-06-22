@@ -17,10 +17,10 @@
 
 | Conceito | Status | Notas |
 |---|---|---|
-| Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `Receipt` implementados |
+| Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt` implementados |
 | Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
 | Entities | ✅ Concluído | `ExpenseLine` implementada com getters, equals e métodos de alteração |
-| Aggregate Root | 🔜 Próximo | `Expense` — próximo grande passo |
+| Aggregate Root | 🔜 Próximo | `Expense` — implementação na próxima sessão |
 | Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
 | Repositories | 🔜 Próximo | Interface no Domain, implementação no Infrastructure |
 | Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
@@ -45,13 +45,14 @@ Um Value Object é um objeto que representa um conceito do domínio definido ape
 ### Quando usar
 Use Value Object quando o conceito:
 - Não precisa ser rastreado individualmente ao longo do tempo
-- É definido pelos seus valores (ex: um endereço, uma quantia em dinheiro, uma taxa de câmbio)
-- Deve ser substituído inteiro quando muda (não atualizado parcialmente)
+- É definido pelos seus valores
+- Deve ser substituído inteiro quando muda
 
 ### Exemplos aplicados no ONGManager
 - `Money` — valor em centavos + moeda ISO 4217
 - `ExchangeRate` — taxa de conversão entre duas moedas em uma data UTC
 - `ProjectId` — wrapper de UUID para referência entre Bounded Contexts
+- `UserId` — wrapper de UUID para identificar usuários (submissor/aprovador)
 - `Receipt` — comprovante fiscal imutável com arquivo obrigatório e valor positivo
 
 ### Padrões aprendidos na prática
@@ -62,6 +63,16 @@ Use Value Object quando o conceito:
 - Implementar `equals()` em todo Value Object para comparação semântica
 - Self-imports desnecessários: classes no mesmo namespace não precisam de `use`
 - Atributos opcionais: `?Type $param = null` — sempre no final do construtor
+
+### Decisão de design: VO genérico vs específico
+Quando um conceito pode ter múltiplos papéis dependendo do contexto, um VO genérico é preferível:
+```
+// ❌ Desnecessariamente específico
+SubmitterId, ApproverId — mas ambos são apenas UUIDs de usuários
+
+// ✅ Genérico e reutilizável
+UserId — o papel (submissor/aprovador) é definido pelo contexto de uso
+```
 
 ---
 
@@ -81,16 +92,10 @@ Um Backed Enum é um Enum nativo do PHP 8.1+ onde cada caso tem um valor escalar
 
 ### Regra prática
 > Se o valor precisa **cruzar uma fronteira** (banco, API, evento, fila) → use **Backed Enum**.
-> Enum puro é para lógica interna que nunca sai do PHP.
-
-### Exemplos aplicados no ONGManager
-- `ExpenseStatus: string` — estados da despesa persistidos no banco e serializados em eventos
-- `DistributionType: string` — tipo de rateio (`fixed_amount`, `percentage`), reutilizável entre contextos
 
 ### Padrões aprendidos na prática
-- `Enum::from('valor')` — reconstrói o caso a partir de string; lança `\ValueError` se inválido
-- `Enum::tryFrom('valor')` — reconstrói ou retorna `null` se inválido (não lança exceção)
-- Testes de Enum verificam: valor correto por caso, reconstrução via `from()`, rejeição via `\ValueError`
+- `Enum::from('valor')` — lança `\ValueError` se inválido
+- `Enum::tryFrom('valor')` — retorna `null` se inválido
 - Enums reutilizáveis entre contextos pertencem ao **Shared Kernel**
 
 ---
@@ -98,20 +103,13 @@ Um Backed Enum é um Enum nativo do PHP 8.1+ onde cada caso tem um valor escalar
 ## 5. Entities
 
 ### O que é
-Uma Entidade é um objeto que tem **identidade própria** — ela é rastreada ao longo do tempo mesmo que seus atributos mudem. Dois objetos com os mesmos atributos mas IDs diferentes são entidades distintas.
+Uma Entidade é um objeto que tem **identidade própria** — ela é rastreada ao longo do tempo mesmo que seus atributos mudem.
 
 ### Características
 - Tem um **ID único e imutável** (geralmente UUID)
 - Pode **mudar de estado** ao longo do tempo
 - A igualdade é definida pelo ID, não pelos atributos
-- Também deve ser PHP puro no domínio
 - **Não usa `readonly`** — precisa poder alterar atributos
-
-### Quando usar
-Use Entidade quando o conceito:
-- Precisa ser rastreado individualmente (tem histórico)
-- Muda de estado ao longo do tempo
-- Precisa ser referenciado por outros objetos via ID
 
 ### Diferença prática entre Entidade e Value Object
 
@@ -122,15 +120,12 @@ Use Entidade quando o conceito:
 | Igualdade | `equals()` compara atributos | `equals()` compara IDs |
 | Exemplo no projeto | `Money(100, 'BRL')` | `ExpenseLine(uuid, projectId, amount)` |
 
-### Exemplos aplicados no ONGManager
-- `ExpenseLine` — fatia de rateio de uma despesa; tem identidade própria (UUID), pode ser adicionada/removida enquanto `Expense` estiver em `DRAFT`, e seus atributos podem ser alterados via métodos específicos (`changeAmount`, `changeProject`, `changeExchangeRate`)
-
 ### Padrões aprendidos na prática
 - ID sempre validado no construtor via `Uuid::isValid()` + normalizado para lowercase
 - `equals()` compara `$this->id === $other->getId()` — nunca os atributos
-- Validações que dependem de contexto externo ficam no **Aggregate Root**, não na Entidade
-- Value Objects ricos se auto-validam — a Entidade não precisa revalidar o que o VO já garante
-- Validações repetidas (construtor + método de alteração) extraídas para métodos privados (`assertValidAmount()`) — princípio DRY
+- Validações que dependem de contexto externo ficam no **Aggregate Root**
+- Value Objects ricos se auto-validam — a Entidade não precisa revalidar
+- Validações repetidas extraídas para métodos privados (`assertValidAmount()`) — DRY
 - Métodos de alteração aplicam as mesmas invariantes do construtor
 
 ---
@@ -143,58 +138,47 @@ Um Aggregate é um **cluster de entidades e value objects** tratado como uma ún
 ### Regras fundamentais
 - Objetos externos só podem referenciar o Aggregate Root — nunca entidades internas diretamente
 - Toda modificação dentro do aggregate passa pelo Root
-- O Root garante as **invariantes** (regras que nunca podem ser violadas)
+- O Root garante as **invariantes**
 - Um aggregate é a **fronteira de transação** — tudo dentro dele é salvo atomicamente
 
-### Exemplos mapeados no ONGManager
-- `Expense` é o Aggregate Root do `SpendManagement`
-  - Controla o ciclo de vida: `DRAFT → SUBMITTED → APPROVED → PAID / REJECTED`
-  - Garante que a soma das `ExpenseLine` iguala o total da despesa
-  - Garante que nenhuma linha seja adicionada após o status `DRAFT`
-  - Garante que aprovador ≠ submissor (segregação de papéis)
-  - Valida compatibilidade de moedas entre `ExpenseLine.amount` e `ExpenseLine.exchangeRate`
-  - Emite Domain Events quando muda de estado
+### Decisões de design do `Expense` (próxima implementação)
+
+| Decisão | Escolha | Justificativa |
+|---|---|---|
+| Construtor recebe `status`? | ❌ Não | Status inicial sempre `DRAFT` — definido internamente |
+| `ExpenseLine` obrigatória na criação? | ❌ Não | Começa com array vazio, adicionada via `addLine()` |
+| `approverId` na criação? | ❌ Não | Definido no momento da aprovação |
+| Quem valida moeda da `ExpenseLine`? | ✅ `Expense` | Ela conhece a moeda base da ONG |
+
+### Invariantes do `Expense`
+- Controla o ciclo de vida: `DRAFT → SUBMITTED → APPROVED → PAID / REJECTED`
+- Soma das `ExpenseLine` deve igualar `totalAmount`
+- `addLine()` só permitido em `DRAFT`
+- `approverId` ≠ `submitterId` (segregação de papéis)
+- Valida compatibilidade de moedas entre `ExpenseLine.amount` e `ExpenseLine.exchangeRate`
+- Emite Domain Events quando muda de estado
 
 ---
 
 ## 7. Domain Events
 
 ### O que é
-Um Domain Event é um fato que aconteceu no domínio e que outras partes do sistema podem precisar saber. É **imutável** e nomeado sempre no **passado**.
-
-### Características
-- Nome sempre no passado: `ExpenseSubmitted`, `ExpenseApproved`, `UserRegistered`
-- Carrega os dados relevantes do momento em que ocorreu
-- Publicado pelo Aggregate Root após uma mudança de estado
-- Consumido assincronamente por outros Bounded Contexts (via RabbitMQ no ONGManager)
+Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado sempre no **passado**.
 
 ### Eventos mapeados no ONGManager — `SpendManagement`
-- `ExpenseSubmitted` — disparado quando um colaborador submete uma despesa para aprovação
-- `ExpenseApproved` — disparado quando o gestor aprova
-- `ExpenseRejected` — disparado quando o gestor rejeita
-- `ExpensePaid` — disparado quando o pagamento é confirmado
+- `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
 
 ---
 
 ## 8. Bounded Contexts
 
-### O que é
-Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de domínio específico é definido e aplicado. O mesmo termo pode ter significados diferentes em contextos distintos.
-
-### Regras de comunicação entre contextos (ONGManager — ADR-002)
-- Contextos **nunca** acessam tabelas ou classes internas de outros contextos diretamente
-- A comunicação é feita via **Domain Events assíncronos** (RabbitMQ/Redis)
-- Referências entre contextos usam apenas **IDs** — nunca objetos completos
+### Regras de comunicação (ADR-002)
+- Contextos **nunca** acessam classes internas de outros contextos diretamente
+- Comunicação via **Domain Events assíncronos** (RabbitMQ/Redis)
+- Referências entre contextos usam apenas **IDs**
 
 ### Contextos mapeados no ONGManager
-- `SpendManagement` — Gestão de Gastos e Reembolsos
-- `BudgetAllocation` — Execução Orçamentária e Bloqueios
-- `FiscalCompliance` — Auditoria e Localizações Fiscais
-- `Fundraising` — Captação e Doações
-- `ProjectDelivery` — Operações e Beneficiários
-
-### Resolução aplicada
-`ExpenseLine` referencia projetos do `ProjectDelivery` via `ProjectId` (UUID wrapper no Shared Kernel) — sem importar classes do outro contexto, conforme ADR-002.
+- `SpendManagement`, `BudgetAllocation`, `FiscalCompliance`, `Fundraising`, `ProjectDelivery`
 
 ---
 
@@ -205,10 +189,8 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 | | Static Factory Method | Factory Pattern |
 |---|---|---|
 | O que é | Método estático que cria instâncias | Classe dedicada à criação |
-| Quando usar | Criação simples, sem dependências externas | Criação complexa, com dependências ou variações |
-| Exemplo | `ProjectId::generate()` | `ExpenseFactory` com regras complexas |
-
-> `ProjectId::generate()` é um **static factory method** — não confundir com o Factory Pattern (GoF).
+| Quando usar | Criação simples, sem dependências | Criação complexa, com dependências |
+| Exemplo | `ProjectId::generate()` | `ExpenseFactory` |
 
 ### Responsabilidade de validação por camada
 
@@ -222,16 +204,7 @@ Um Bounded Context é uma **fronteira explícita** dentro da qual um modelo de d
 
 ### setUp() no PHPUnit
 
-O método `setUp()` é executado **antes de cada teste** — elimina repetição de criação de objetos mantendo isolamento entre testes. Cada teste recebe uma instância fresca, sem risco de estado compartilhado.
-
-```php
-protected function setUp(): void
-{
-    $this->expenseLine = new ExpenseLine(...);
-}
-```
-
-Testes que precisam de cenário diferente do padrão ainda criam sua própria instância localmente.
+Executado **antes de cada teste** — instância sempre fresca, sem estado compartilhado. Propriedades de suporte (ex: `$projectId`) também podem ser extraídas para a classe do teste.
 
 ---
 
@@ -244,17 +217,15 @@ Testes que precisam de cenário diferente do padrão ainda criam sua própria in
 | `fix` | Correção de bug |
 | `test` | Adição ou correção de testes |
 | `refactor` | Reestruturação sem mudar comportamento |
-| `style` | Formatação, imports, espaços — sem lógica |
+| `style` | Formatação, imports, espaços |
 | `docs` | Documentação |
-| `chore` | Tarefas de manutenção sem tocar código da aplicação |
+| `chore` | Manutenção sem tocar código da aplicação |
 
 ### Corrigir commit antes do push
 ```bash
 git commit --amend -m "mensagem corrigida"
 ```
-
-### Após o push
-Não usar `git push --force` em branches compartilhadas — reescreve histórico remoto e causa problemas para outros devs. Em branch solo é possível mas deve ser evitado como hábito.
+Após o push, não usar `force push` em branches compartilhadas.
 
 ---
 
@@ -263,17 +234,20 @@ Não usar `git push --force` em branches compartilhadas — reescreve histórico
 | # | Dúvida / Descoberta | Status |
 |---|---|---|
 | 1 | Valores negativos em `Money` são válidos? | ✅ Sim — representam estornos contábeis |
-| 2 | Por que armazenar taxa de câmbio como `string`? | ✅ Para usar `bcmath` sem perda de precisão de ponto flutuante |
-| 3 | Por que `DateTimeImmutable` e não `DateTime`? | ✅ `DateTime` é mutável — viola imutabilidade do VO |
-| 4 | `ExpenseLine` é entidade ou VO? | ✅ Entidade — tem identidade e pode ser adicionada/removida individualmente |
-| 5 | Como contextos se comunicam sem acoplamento? | ✅ Via Domain Events assíncronos + referência por ID (ProjectId) |
+| 2 | Por que armazenar taxa de câmbio como `string`? | ✅ `bcmath` sem perda de precisão |
+| 3 | Por que `DateTimeImmutable` e não `DateTime`? | ✅ `DateTime` é mutável |
+| 4 | `ExpenseLine` é entidade ou VO? | ✅ Entidade — tem identidade própria |
+| 5 | Como contextos se comunicam sem acoplamento? | ✅ Domain Events + referência por ID |
 | 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — é static factory method |
-| 7 | Enum puro ou Backed Enum para estados? | ✅ Backed Enum quando o valor cruza fronteiras (banco, API, eventos) |
+| 7 | Enum puro ou Backed Enum para estados? | ✅ Backed Enum quando cruza fronteiras |
 | 8 | Validar se arquivo existe no domínio? | ✅ Não — filesystem é infraestrutura |
-| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — responsabilidade da `Expense` (Aggregate Root) |
-| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `?Type` aceita null mas ainda exige que seja passado |
-| 11 | Validação repetida no construtor e no método de alteração? | ✅ Extrair para método privado (`assertValidAmount()`) — princípio DRY |
-| 12 | `setUp()` no PHPUnit compartilha estado entre testes? | ✅ Não — é executado antes de **cada** teste, instância sempre fresca |
+| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — responsabilidade da `Expense` |
+| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `= null` é obrigatório |
+| 11 | Validação repetida no construtor e método de alteração? | ✅ Extrair para método privado (DRY) |
+| 12 | `setUp()` compartilha estado entre testes? | ✅ Não — executado antes de cada teste |
+| 13 | `SubmitterId` e `ApproverId` separados ou `UserId` genérico? | ✅ `UserId` genérico — papel é contextual |
+| 14 | `Expense` deve receber `status` no construtor? | ✅ Não — sempre inicia em `DRAFT` internamente |
+| 15 | `ExpenseLine` é obrigatória na criação da `Expense`? | ✅ Não — adicionada via `addLine()` após criação |
 
 ---
 
