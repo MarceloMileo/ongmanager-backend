@@ -105,4 +105,57 @@ class ExpenseTest extends TestCase
 
         $this->assertCount(1, $this->expense->getLines());
     }
+
+    public function test_should_reject_add_line_when_not_draft(): void
+    {
+        $line = new ExpenseLine(
+            '652e8745-d48b-41a4-b587-448955445854',
+            new ProjectId('550e8400-e29b-41d4-a716-446655440000'),
+            new Money(1500, 'USD'),
+            DistributionType::FIXED_AMOUNT
+        );
+
+        $this->expense->addLine($line);
+        $this->expense->submit();
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->expense->addLine(new ExpenseLine(
+            '845b5465-f54f-74d9-a896-231654654664',
+            new ProjectId('550e8400-e29b-41d4-a716-446655440000'),
+            new Money(1500, 'USD'),
+            DistributionType::FIXED_AMOUNT
+        ));
+    }
+
+    public function test_should_reject_submit_without_lines(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expense->submit();
+    }
+
+    public function test_should_reject_approve_when_approver_is_submitter(): void
+    {
+        $approverId = new UserId('652e8745-d48b-41a4-b587-448955445854');
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->expense->approve($approverId);
+    }
+
+    public function test_should_reject_mismatched_currency_between_receipt_and_total_amount(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $date = $this->utcDate();
+
+        $this->receipt = new Receipt('caminho/arquivo', new Money(1500, 'CLP'), '123456', '19694231896', $date);
+        $totalAmount = new Money(1500, 'USD');
+        $userId = new UserId('652e8745-d48b-41a4-b587-448955445854');
+
+        $this->expense = new Expense(
+            '550e8400-e29b-41d4-a716-446655440000',
+            $this->receipt,
+            $totalAmount,
+            $userId
+        );
+    }
 }
