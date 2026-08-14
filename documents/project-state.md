@@ -90,26 +90,15 @@ Classe `final readonly` imutável que representa valores monetários em centavos
 
 **Operações implementadas:** `add`, `subtract`, `multiply`, `allocate`, `isGreaterThan`, `isLessThan`, `equals`.
 
-**Invariantes do construtor:**
-- Moeda deve ser código ISO 4217 de exatamente 3 caracteres
-- Moeda normalizada para uppercase internamente
-- Valores negativos são permitidos (representam estornos contábeis)
-
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php` — ✅ 100% de cobertura.
 
 ---
 
 #### ✅ `ExchangeRate` — `app/Contexts/Shared/Domain/ValueObjects/ExchangeRate.php`
 
-Classe `final readonly` imutável que representa a taxa de conversão cambial entre duas moedas em uma data específica. Taxa armazenada como `string` para preservar precisão decimal arbitrária via `bcmath`.
+Classe `final readonly` imutável que representa a taxa de conversão cambial entre duas moedas em uma data específica.
 
 **Operações implementadas:** `convert(Money): Money`, `equals(ExchangeRate): bool`.
-
-**Invariantes do construtor:**
-- Moedas de origem e destino: código ISO 4217 de 3 caracteres, normalizadas para uppercase
-- Moedas de origem e destino não podem ser iguais
-- Taxa deve ser maior que zero (validada via `bccomp`)
-- **Data deve estar em UTC** — invariante derivado da ADR-003
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExchangeRateTest.php` — ✅ 100% de cobertura.
 
@@ -117,7 +106,7 @@ Classe `final readonly` imutável que representa a taxa de conversão cambial en
 
 #### ✅ `ProjectId` — `app/Contexts/Shared/Domain/ValueObjects/ProjectId.php`
 
-Classe `final readonly` imutável que representa a identidade única de um Projeto. Utilizada como referência entre Bounded Contexts (`SpendManagement` → `ProjectDelivery`) sem acoplamento direto de classes, conforme ADR-0004. Utiliza `Ramsey\Uuid` para geração e validação de UUIDs v4.
+Classe `final readonly` imutável que representa a identidade única de um Projeto.
 
 **Operações implementadas:** `generate(): self`, `toString(): string`, `equals(ProjectId): bool`.
 
@@ -127,9 +116,7 @@ Classe `final readonly` imutável que representa a identidade única de um Proje
 
 #### ✅ `UserId` — `app/Contexts/Shared/Domain/ValueObjects/UserId.php`
 
-Classe `final readonly` imutável que representa a identidade única de um Usuário. Utilizada na `Expense` para identificar `submitterId` e `approverId` — garantindo a invariante de segregação de papéis (aprovador ≠ submissor).
-
-**Por que `UserId` genérico e não `SubmitterId`/`ApproverId` separados:** um usuário pode ser submissor em uma despesa e aprovador em outra — o papel é contextual, não intrínseco ao usuário.
+Classe `final readonly` imutável que representa a identidade única de um Usuário. Utilizada na `Expense` para identificar `submitterId` e `approverId`.
 
 **Operações implementadas:** `generate(): self`, `toString(): string`, `equals(UserId): bool`.
 
@@ -139,9 +126,7 @@ Classe `final readonly` imutável que representa a identidade única de um Usuá
 
 #### ✅ `ExpenseStatus` — `app/Contexts/Shared/Domain/ValueObjects/ExpenseStatus.php`
 
-Backed Enum (`string`) que representa os estados do ciclo de vida de uma despesa.
-
-**Casos:** `DRAFT = 'draft'`, `SUBMITTED = 'submitted'`, `APPROVED = 'approved'`, `REJECTED = 'rejected'`, `PAID = 'paid'`.
+Backed Enum (`string`): `DRAFT`, `SUBMITTED`, `APPROVED`, `REJECTED`, `PAID`.
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExpenseStatusTest.php` — ✅ 100% de cobertura.
 
@@ -149,9 +134,7 @@ Backed Enum (`string`) que representa os estados do ciclo de vida de uma despesa
 
 #### ✅ `DistributionType` — `app/Contexts/Shared/Domain/ValueObjects/DistributionType.php`
 
-Backed Enum (`string`) que representa o tipo de distribuição de custo de uma linha de despesa.
-
-**Casos:** `FIXED_AMOUNT = 'fixed_amount'`, `PERCENTAGE = 'percentage'`.
+Backed Enum (`string`): `FIXED_AMOUNT`, `PERCENTAGE`.
 
 **Testes:** `tests/Unit/Shared/Domain/ValueObjects/DistributionTypeTest.php` — ✅ 100% de cobertura.
 
@@ -173,14 +156,7 @@ Classe `final readonly` imutável que representa o comprovante fiscal anexado a 
 
 #### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
 
-Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa apontando para um projeto específico.
-
-**Atributos:**
-- `id` — UUID único e imutável
-- `projectId` — `ProjectId`
-- `amount` — `Money` sempre positivo
-- `distributionType` — `DistributionType`
-- `exchangeRate` — `?ExchangeRate` opcional
+Entidade que representa uma fatia do rateio de uma despesa.
 
 **Operações implementadas:**
 - Getters: `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`
@@ -188,7 +164,37 @@ Primeira **Entidade** do projeto. Representa uma fatia do rateio de uma despesa 
 - Identidade: `equals(ExpenseLine): bool` — compara pelo **ID**
 
 **Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseLineTest.php` — ✅ 100% de cobertura.
-Teste refatorado com `setUp()` e `$projectId` como propriedade da classe.
+
+---
+
+#### ✅ `Expense` — `app/Contexts/SpendManagement/Domain/Entities/Expense.php`
+
+**Aggregate Root** do `SpendManagement`. Guardião de todas as invariantes de negócio do ciclo de vida de uma despesa.
+
+**Atributos:**
+- `id` — UUID único e imutável
+- `receipt` — `Receipt` obrigatório
+- `totalAmount` — `Money` sempre positivo, na mesma moeda do `Receipt`
+- `submitterId` — `UserId`
+- `status` — `ExpenseStatus` iniciando sempre em `DRAFT`
+- `lines` — `ExpenseLine[]` começando vazio
+
+**Invariantes implementadas:**
+- `id` deve ser UUID válido
+- `totalAmount` deve ser maior que zero
+- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue`
+- `addLine()` só permitido em `DRAFT`
+- `submit()` exige ao menos uma `ExpenseLine`
+- `approve()` — `approverId` deve ser diferente do `submitterId` (segregação de papéis)
+
+**Operações implementadas:**
+- Getters: `getId()`, `getTotalAmount()`, `getSubmitterId()`, `getStatus()`, `getLines()`, `getReceipt()`
+- `addLine(ExpenseLine): void`
+- `submit(): void` — `DRAFT → SUBMITTED`
+- `approve(UserId): void` — `SUBMITTED → APPROVED`
+
+**Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseTest.php` — ✅ 100% de cobertura.
+Casos cobertos: criação válida, rejeição de totalAmount zero/negativo, rejeição de UUID inválido, rejeição de moedas incompatíveis entre Receipt e totalAmount, addLine (válido + rejeição fora de DRAFT), submit sem linhas, approve com aprovador igual ao submissor.
 
 ---
 
@@ -198,8 +204,8 @@ Teste refatorado com `setUp()` e `$projectId` como propriedade da classe.
 | `DistributionType` | Enum | ✅ Concluído |
 | `Receipt` | Value Object | ✅ Concluído |
 | `ExpenseLine` | Entidade | ✅ Concluído |
-| `Expense` | Aggregate Root | 🔜 Próximo |
-| `CostDistribution` | Value Object | ⏳ A seguir |
+| `Expense` | Aggregate Root | ✅ Concluído |
+| `CostDistribution` | Value Object | 🔜 Próximo |
 | `IExpenseRepository` | Interface | ⏳ Não iniciado |
 
 ### Demais Bounded Contexts
@@ -213,39 +219,28 @@ Teste refatorado com `setUp()` e `$projectId` como propriedade da classe.
 
 ---
 
-## 5. Decisões de Design do `Expense` Aggregate Root
-
-Decisões tomadas em sessão de modelagem — prontas para implementação:
-
-- **Construtor recebe:** `id` (UUID), `receipt` (Receipt), `totalAmount` (Money), `submitterId` (UserId)
-- **Status inicial:** sempre `DRAFT` — definido internamente, não recebido como parâmetro
-- **`ExpenseLine`:** começa como array vazio — adicionadas via `addLine()` após criação
-- **`approverId`:** definido no momento da aprovação, não na criação
-- **Invariante de segregação:** `approverId` deve ser diferente de `submitterId`
-- **Invariante de consistência:** soma das `ExpenseLine` deve igualar `totalAmount`
-- **Invariante de estado:** `addLine()` só permitido em `DRAFT`
-
----
-
-## 6. Convenções e Padrões Estabelecidos no Código
+## 5. Convenções e Padrões Estabelecidos no Código
 
 - **TDD obrigatório** — testes escritos antes da implementação (Red → Green → Refactor)
 - **Testes escritos em inglês** (nomes de métodos e asserções)
 - **Um único motivo de falha por teste**
-- **`setUp()` do PHPUnit** — elimina repetição; propriedades de suporte (ex: `$projectId`) também extraídas
+- **`setUp()` do PHPUnit** — elimina repetição; propriedades de suporte também extraídas
 - **Helper methods privados nos testes** (ex: `utcDate()`)
 - **Mensagens de exceção em português**
 - **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style`
 - **`git commit --amend`** — corrige último commit antes do push
-- **Self-imports desnecessários removidos**
+- **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
 - **Getters com prefixo `get`**
 - **Parâmetros opcionais sempre no final** com `?Type $param = null`
 - **DRY em validações** — extraídas para métodos privados
+- **Comparação de VOs sempre via `equals()`** — nunca `===` entre objetos
 
 ---
 
-## 7. Próximos Passos de Engenharia
+## 6. Próximos Passos de Engenharia
 
-1. **`Expense`** — Aggregate Root com state machine, invariantes de domínio e emissão de Domain Events
-2. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
-3. **`IExpenseRepository`** — Interface de repositório na camada de Domain
+1. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
+2. **`IExpenseRepository`** — Interface de repositório na camada de Domain
+3. **Domain Events** — `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
+4. **README** — ✅ Adicionado com badges, arquitetura, stack e status de implementação
+5. **LICENSE** — ✅ CC BY-NC 4.0

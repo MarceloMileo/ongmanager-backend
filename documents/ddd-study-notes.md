@@ -20,7 +20,7 @@
 | Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt` implementados |
 | Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
 | Entities | ✅ Concluído | `ExpenseLine` implementada com getters, equals e métodos de alteração |
-| Aggregate Root | 🔜 Próximo | `Expense` — implementação na próxima sessão |
+| Aggregate Root | ✅ Concluído | `Expense` implementada com state machine e invariantes de domínio |
 | Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
 | Repositories | 🔜 Próximo | Interface no Domain, implementação no Infrastructure |
 | Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
@@ -41,12 +41,6 @@ Um Value Object é um objeto que representa um conceito do domínio definido ape
 - **Sem identidade:** não tem ID. A igualdade é definida pelos valores.
 - **Auto-validante:** o construtor garante que um VO inválido nunca existe.
 - **PHP puro no domínio:** sem dependências de framework.
-
-### Quando usar
-Use Value Object quando o conceito:
-- Não precisa ser rastreado individualmente ao longo do tempo
-- É definido pelos seus valores
-- Deve ser substituído inteiro quando muda
 
 ### Exemplos aplicados no ONGManager
 - `Money` — valor em centavos + moeda ISO 4217
@@ -141,22 +135,41 @@ Um Aggregate é um **cluster de entidades e value objects** tratado como uma ún
 - O Root garante as **invariantes**
 - Um aggregate é a **fronteira de transação** — tudo dentro dele é salvo atomicamente
 
-### Decisões de design do `Expense` (próxima implementação)
+### O Aggregate Root é responsável pela sua própria aprovação?
+**Sim.** No DDD, o Aggregate Root é o guardião de todas as suas invariantes — incluindo aprovação. A `Expense` conhece o `submitterId` e pode validar que o aprovador é diferente. Objetos externos nunca deveriam mudar o estado diretamente:
+
+```php
+// ✅ A Expense controla sua própria aprovação
+$expense->approve($approverId);
+
+// ❌ Viola o encapsulamento — estado mudado de fora
+$expense->setStatus(ExpenseStatus::APPROVED);
+```
+
+### Invariantes implementadas no `Expense`
+- `id` deve ser UUID válido
+- `totalAmount` deve ser maior que zero
+- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue` — rastreabilidade fiscal
+- `addLine()` só permitido em `DRAFT`
+- `submit()` exige ao menos uma `ExpenseLine`
+- `approve()` — `approverId` ≠ `submitterId` (segregação de papéis para compliance)
+- Comparação de `UserId` via `equals()` — nunca `===` entre objetos
+
+### State Machine do `Expense`
+```
+DRAFT → SUBMITTED → APPROVED → PAID
+                 ↘ REJECTED
+```
+
+### Decisões de design do `Expense`
 
 | Decisão | Escolha | Justificativa |
 |---|---|---|
 | Construtor recebe `status`? | ❌ Não | Status inicial sempre `DRAFT` — definido internamente |
 | `ExpenseLine` obrigatória na criação? | ❌ Não | Começa com array vazio, adicionada via `addLine()` |
 | `approverId` na criação? | ❌ Não | Definido no momento da aprovação |
-| Quem valida moeda da `ExpenseLine`? | ✅ `Expense` | Ela conhece a moeda base da ONG |
-
-### Invariantes do `Expense`
-- Controla o ciclo de vida: `DRAFT → SUBMITTED → APPROVED → PAID / REJECTED`
-- Soma das `ExpenseLine` deve igualar `totalAmount`
-- `addLine()` só permitido em `DRAFT`
-- `approverId` ≠ `submitterId` (segregação de papéis)
-- Valida compatibilidade de moedas entre `ExpenseLine.amount` e `ExpenseLine.exchangeRate`
-- Emite Domain Events quando muda de estado
+| Quem valida moeda da `ExpenseLine`? | ✅ `Expense` | Ela conhece a moeda base |
+| Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` (construtor) | Ambos disponíveis na criação |
 
 ---
 
@@ -198,13 +211,14 @@ Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado
 |---|---|
 | Formato de UUID | Entidade / VO no construtor |
 | Valor monetário positivo | Entidade / VO no construtor |
+| Moeda Receipt == moeda totalAmount | Aggregate Root (`Expense` construtor) |
 | Arquivo existe no disco | Infrastructure |
-| Moeda base compatível com ExchangeRate | Aggregate Root (`Expense`) |
+| Moeda base compatível com ExchangeRate | Aggregate Root (`Expense.addLine()`) |
 | Projeto existe e está ativo | Application Layer via `IProjectValidator` |
 
 ### setUp() no PHPUnit
 
-Executado **antes de cada teste** — instância sempre fresca, sem estado compartilhado. Propriedades de suporte (ex: `$projectId`) também podem ser extraídas para a classe do teste.
+Executado **antes de cada teste** — instância sempre fresca, sem estado compartilhado. Propriedades de suporte (ex: `$projectId`, `$receipt`) também podem ser extraídas para a classe do teste.
 
 ---
 
@@ -248,6 +262,9 @@ Após o push, não usar `force push` em branches compartilhadas.
 | 13 | `SubmitterId` e `ApproverId` separados ou `UserId` genérico? | ✅ `UserId` genérico — papel é contextual |
 | 14 | `Expense` deve receber `status` no construtor? | ✅ Não — sempre inicia em `DRAFT` internamente |
 | 15 | `ExpenseLine` é obrigatória na criação da `Expense`? | ✅ Não — adicionada via `addLine()` após criação |
+| 16 | A `Expense` é responsável pela sua própria aprovação? | ✅ Sim — Aggregate Root é guardião de todas as invariantes |
+| 17 | Comparar dois `UserId` com `===`? | ✅ Não — `===` compara referência de objetos. Usar `equals()` |
+| 18 | Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` no construtor — ambos disponíveis na criação |
 
 ---
 
