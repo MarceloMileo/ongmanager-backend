@@ -17,14 +17,14 @@
 
 | Conceito | Status | Notas |
 |---|---|---|
-| Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt` implementados |
+| Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt`, `CostDistribution` implementados |
 | Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
 | Entities | ✅ Concluído | `ExpenseLine` implementada com getters, equals e métodos de alteração |
 | Aggregate Root | ✅ Concluído | `Expense` implementada com state machine e invariantes de domínio |
+| Domain Services | 🔜 Próximo | `CostDistributionCalculator` — algoritmo de rateio com Penny Rounding Rule |
 | Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
-| Repositories | 🔜 Próximo | Interface no Domain, implementação no Infrastructure |
+| Repositories | 🔜 Próximo | `IExpenseRepository` — Interface no Domain |
 | Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
-| Domain Services | ⏳ Não iniciado | |
 | Application Services / Use Cases | ⏳ Não iniciado | |
 | CQRS | ⏳ Não iniciado | |
 | Saga / Process Manager | ⏳ Não iniciado | |
@@ -48,6 +48,7 @@ Um Value Object é um objeto que representa um conceito do domínio definido ape
 - `ProjectId` — wrapper de UUID para referência entre Bounded Contexts
 - `UserId` — wrapper de UUID para identificar usuários (submissor/aprovador)
 - `Receipt` — comprovante fiscal imutável com arquivo obrigatório e valor positivo
+- `CostDistribution` — resultado imutável do rateio para um projeto específico
 
 ### Padrões aprendidos na prática
 - Usar `final readonly` no PHP 8.2+ para garantir imutabilidade pelo runtime
@@ -57,6 +58,7 @@ Um Value Object é um objeto que representa um conceito do domínio definido ape
 - Implementar `equals()` em todo Value Object para comparação semântica
 - Self-imports desnecessários: classes no mesmo namespace não precisam de `use`
 - Atributos opcionais: `?Type $param = null` — sempre no final do construtor
+- VOs que têm formato para exibição e formato para cálculo devem ter métodos separados (ex: `getProportionAsPercentage()` vs `getProportionInBasisPoints()`)
 
 ### Decisão de design: VO genérico vs específico
 Quando um conceito pode ter múltiplos papéis dependendo do contexto, um VO genérico é preferível:
@@ -67,6 +69,16 @@ SubmitterId, ApproverId — mas ambos são apenas UUIDs de usuários
 // ✅ Genérico e reutilizável
 UserId — o papel (submissor/aprovador) é definido pelo contexto de uso
 ```
+
+### Basis Points — representação de proporções
+Para evitar erros de ponto flutuante em cálculos percentuais, proporções são armazenadas como inteiros em basis points:
+```
+10000 bps = 100%
+5000 bps  = 50%
+3333 bps  ≈ 33.33%
+1 bps     = 0.01%
+```
+Mesmo princípio do `Money` em centavos — valores fracionários representados como inteiros.
 
 ---
 
@@ -136,24 +148,15 @@ Um Aggregate é um **cluster de entidades e value objects** tratado como uma ún
 - Um aggregate é a **fronteira de transação** — tudo dentro dele é salvo atomicamente
 
 ### O Aggregate Root é responsável pela sua própria aprovação?
-**Sim.** No DDD, o Aggregate Root é o guardião de todas as suas invariantes — incluindo aprovação. A `Expense` conhece o `submitterId` e pode validar que o aprovador é diferente. Objetos externos nunca deveriam mudar o estado diretamente:
-
-```php
-// ✅ A Expense controla sua própria aprovação
-$expense->approve($approverId);
-
-// ❌ Viola o encapsulamento — estado mudado de fora
-$expense->setStatus(ExpenseStatus::APPROVED);
-```
+**Sim.** No DDD, o Aggregate Root é o guardião de todas as suas invariantes — incluindo aprovação.
 
 ### Invariantes implementadas no `Expense`
 - `id` deve ser UUID válido
 - `totalAmount` deve ser maior que zero
-- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue` — rastreabilidade fiscal
+- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue`
 - `addLine()` só permitido em `DRAFT`
 - `submit()` exige ao menos uma `ExpenseLine`
-- `approve()` — `approverId` ≠ `submitterId` (segregação de papéis para compliance)
-- Comparação de `UserId` via `equals()` — nunca `===` entre objetos
+- `approve()` — `approverId` ≠ `submitterId` (segregação de papéis)
 
 ### State Machine do `Expense`
 ```
@@ -161,19 +164,37 @@ DRAFT → SUBMITTED → APPROVED → PAID
                  ↘ REJECTED
 ```
 
-### Decisões de design do `Expense`
+---
 
-| Decisão | Escolha | Justificativa |
-|---|---|---|
-| Construtor recebe `status`? | ❌ Não | Status inicial sempre `DRAFT` — definido internamente |
-| `ExpenseLine` obrigatória na criação? | ❌ Não | Começa com array vazio, adicionada via `addLine()` |
-| `approverId` na criação? | ❌ Não | Definido no momento da aprovação |
-| Quem valida moeda da `ExpenseLine`? | ✅ `Expense` | Ela conhece a moeda base |
-| Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` (construtor) | Ambos disponíveis na criação |
+## 7. Domain Services
+
+### O que é
+Um Domain Service executa **operações de domínio** que não pertencem naturalmente a nenhuma entidade ou Value Object específico. Ele contém lógica de negócio pura mas não tem identidade própria.
+
+### Quando usar Domain Service
+Use quando a operação:
+- Envolve múltiplos aggregates ou VOs
+- É um processo/algoritmo complexo
+- Não pertence naturalmente a nenhuma entidade
+
+### Relação entre VO e Domain Service
+> **Domain Services enriquecem e produzem VOs** — o VO representa o *resultado*, o Service executa o *processo*.
+
+```
+CostDistributionCalculator (Domain Service)
+    ↓ recebe: Expense + ExchangeRates
+    ↓ executa: algoritmo de rateio + Penny Rounding Rule
+    ↓ produz: CostDistribution[] (VOs ricos e imutáveis)
+```
+
+O VO `CostDistribution` não sabe como foi calculado — ele só garante que seus dados são válidos. A complexidade está no serviço.
+
+### Próximo Domain Service a implementar
+- **`CostDistributionCalculator`** — recebe `Expense` + `ExchangeRate[]`, aplica a Penny Rounding Rule e retorna `CostDistribution[]`
 
 ---
 
-## 7. Domain Events
+## 8. Domain Events
 
 ### O que é
 Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado sempre no **passado**.
@@ -183,7 +204,7 @@ Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado
 
 ---
 
-## 8. Bounded Contexts
+## 9. Bounded Contexts
 
 ### Regras de comunicação (ADR-002)
 - Contextos **nunca** acessam classes internas de outros contextos diretamente
@@ -195,7 +216,7 @@ Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado
 
 ---
 
-## 9. Padrões de Design Aprendidos
+## 10. Padrões de Design Aprendidos
 
 ### Static Factory Method vs Factory Pattern
 
@@ -214,15 +235,15 @@ Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado
 | Moeda Receipt == moeda totalAmount | Aggregate Root (`Expense` construtor) |
 | Arquivo existe no disco | Infrastructure |
 | Moeda base compatível com ExchangeRate | Aggregate Root (`Expense.addLine()`) |
+| Algoritmo de rateio com Penny Rounding | Domain Service (`CostDistributionCalculator`) |
 | Projeto existe e está ativo | Application Layer via `IProjectValidator` |
 
 ### setUp() no PHPUnit
-
-Executado **antes de cada teste** — instância sempre fresca, sem estado compartilhado. Propriedades de suporte (ex: `$projectId`, `$receipt`) também podem ser extraídas para a classe do teste.
+Executado **antes de cada teste** — instância sempre fresca. Propriedades de suporte (ex: `$projectId`, `$receipt`) também extraídas para a classe do teste.
 
 ---
 
-## 10. Git — Boas Práticas
+## 11. Git — Boas Práticas
 
 ### Commits semânticos
 | Prefixo | Quando usar |
@@ -243,7 +264,7 @@ Após o push, não usar `force push` em branches compartilhadas.
 
 ---
 
-## 11. Dúvidas e Descobertas
+## 12. Dúvidas e Descobertas
 
 | # | Dúvida / Descoberta | Status |
 |---|---|---|
@@ -263,12 +284,14 @@ Após o push, não usar `force push` em branches compartilhadas.
 | 14 | `Expense` deve receber `status` no construtor? | ✅ Não — sempre inicia em `DRAFT` internamente |
 | 15 | `ExpenseLine` é obrigatória na criação da `Expense`? | ✅ Não — adicionada via `addLine()` após criação |
 | 16 | A `Expense` é responsável pela sua própria aprovação? | ✅ Sim — Aggregate Root é guardião de todas as invariantes |
-| 17 | Comparar dois `UserId` com `===`? | ✅ Não — `===` compara referência de objetos. Usar `equals()` |
-| 18 | Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` no construtor — ambos disponíveis na criação |
+| 17 | Comparar dois `UserId` com `===`? | ✅ Não — usar `equals()` |
+| 18 | Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` no construtor |
+| 19 | `CostDistribution` é o VO mais complexo do contexto? | ✅ O VO em si é simples — a complexidade está no `CostDistributionCalculator` (Domain Service) que o produz |
+| 20 | Quem enriquece os VOs? | ✅ Os Domain Services — eles executam operações complexas e **produzem** VOs ricos como resultado |
 
 ---
 
-## 12. Referências e Leituras
+## 13. Referências e Leituras
 
 - **Livro base:** *Domain-Driven Design* — Eric Evans (Livro Azul)
 - **Livro prático:** *Implementing Domain-Driven Design* — Vaughn Vernon (Livro Vermelho)

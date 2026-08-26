@@ -85,116 +85,68 @@ Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `doc
 ### Shared Kernel — Value Objects
 
 #### ✅ `Money` — `app/Contexts/Shared/Domain/ValueObjects/Money.php`
-
-Classe `final readonly` imutável que representa valores monetários em centavos (inteiros). Utiliza `bcmath` para precisão arbitrária e implementa o Algoritmo de Alocação Proporcional de Martin Fowler (`allocate()`).
-
-**Operações implementadas:** `add`, `subtract`, `multiply`, `allocate`, `isGreaterThan`, `isLessThan`, `equals`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/MoneyTest.php` — ✅ 100% de cobertura.
-
----
+Classe `final readonly` imutável. Utiliza `bcmath` e algoritmo de Fowler (`allocate()`).
+**Operações:** `add`, `subtract`, `multiply`, `allocate`, `isGreaterThan`, `isLessThan`, `equals`.
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `ExchangeRate` — `app/Contexts/Shared/Domain/ValueObjects/ExchangeRate.php`
-
-Classe `final readonly` imutável que representa a taxa de conversão cambial entre duas moedas em uma data específica.
-
-**Operações implementadas:** `convert(Money): Money`, `equals(ExchangeRate): bool`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExchangeRateTest.php` — ✅ 100% de cobertura.
-
----
+Classe `final readonly` imutável. Taxa armazenada como `string` via `bcmath`. Data obrigatoriamente UTC.
+**Operações:** `convert(Money): Money`, `equals(ExchangeRate): bool`.
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `ProjectId` — `app/Contexts/Shared/Domain/ValueObjects/ProjectId.php`
-
-Classe `final readonly` imutável que representa a identidade única de um Projeto.
-
-**Operações implementadas:** `generate(): self`, `toString(): string`, `equals(ProjectId): bool`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ProjectIdTest.php` — ✅ 100% de cobertura.
-
----
+Wrapper de UUID para referência entre Bounded Contexts.
+**Operações:** `generate(): self`, `toString(): string`, `equals(ProjectId): bool`.
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `UserId` — `app/Contexts/Shared/Domain/ValueObjects/UserId.php`
-
-Classe `final readonly` imutável que representa a identidade única de um Usuário. Utilizada na `Expense` para identificar `submitterId` e `approverId`.
-
-**Operações implementadas:** `generate(): self`, `toString(): string`, `equals(UserId): bool`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/UserIdTest.php` — ✅ 100% de cobertura.
-
----
+Wrapper de UUID para identificar usuários (submissor/aprovador). Genérico — papel é contextual.
+**Operações:** `generate(): self`, `toString(): string`, `equals(UserId): bool`.
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `ExpenseStatus` — `app/Contexts/Shared/Domain/ValueObjects/ExpenseStatus.php`
-
 Backed Enum (`string`): `DRAFT`, `SUBMITTED`, `APPROVED`, `REJECTED`, `PAID`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ExpenseStatusTest.php` — ✅ 100% de cobertura.
-
----
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `DistributionType` — `app/Contexts/Shared/Domain/ValueObjects/DistributionType.php`
-
 Backed Enum (`string`): `FIXED_AMOUNT`, `PERCENTAGE`.
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/DistributionTypeTest.php` — ✅ 100% de cobertura.
-
----
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `Receipt` — `app/Contexts/Shared/Domain/ValueObjects/Receipt.php`
-
-Classe `final readonly` imutável que representa o comprovante fiscal anexado a uma despesa.
-
-**Atributos obrigatórios:** `fileReference` (string), `documentValue` (Money > 0).
-
-**Atributos opcionais:** `documentNumber` (?string), `issuerIdentifier` (?string), `issuedAt` (?DateTimeImmutable UTC).
-
-**Testes:** `tests/Unit/Shared/Domain/ValueObjects/ReceiptTest.php` — ✅ 100% de cobertura.
+Comprovante fiscal imutável. `fileReference` e `documentValue` (Money > 0) obrigatórios.
+**Testes:** ✅ 100% de cobertura.
 
 ---
 
 ### SpendManagement
 
 #### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
-
-Entidade que representa uma fatia do rateio de uma despesa.
-
-**Operações implementadas:**
-- Getters: `getId()`, `getProjectId()`, `getAmount()`, `getDistributionType()`, `getExchangeRate()`
-- Alteração: `changeAmount(Money)`, `changeProject(ProjectId)`, `changeExchangeRate(?ExchangeRate)`
-- Identidade: `equals(ExpenseLine): bool` — compara pelo **ID**
-
-**Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseLineTest.php` — ✅ 100% de cobertura.
-
----
+Entidade de rateio. Getters + `changeAmount()`, `changeProject()`, `changeExchangeRate()`. `equals()` por ID.
+**Testes:** ✅ 100% de cobertura.
 
 #### ✅ `Expense` — `app/Contexts/SpendManagement/Domain/Entities/Expense.php`
+Aggregate Root. State machine `DRAFT → SUBMITTED → APPROVED`. Invariantes de moeda, segregação de papéis e consistência de linhas.
+**Operações:** `addLine()`, `submit()`, `approve(UserId)`.
+**Testes:** ✅ 100% de cobertura.
 
-**Aggregate Root** do `SpendManagement`. Guardião de todas as invariantes de negócio do ciclo de vida de uma despesa.
+#### ✅ `CostDistribution` — `app/Contexts/SpendManagement/Domain/ValueObjects/CostDistribution.php`
+Value Object imutável que representa o resultado do rateio de custo para um projeto específico.
 
 **Atributos:**
-- `id` — UUID único e imutável
-- `receipt` — `Receipt` obrigatório
-- `totalAmount` — `Money` sempre positivo, na mesma moeda do `Receipt`
-- `submitterId` — `UserId`
-- `status` — `ExpenseStatus` iniciando sempre em `DRAFT`
-- `lines` — `ExpenseLine[]` começando vazio
+- `projectId` — `ProjectId` de destino
+- `allocatedAmount` — `Money` na moeda base da ONG (já convertido)
+- `proportionInBasisPoints` — `int` (10000 = 100%, 3333 ≈ 33.33%)
 
-**Invariantes implementadas:**
-- `id` deve ser UUID válido
-- `totalAmount` deve ser maior que zero
-- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue`
-- `addLine()` só permitido em `DRAFT`
-- `submit()` exige ao menos uma `ExpenseLine`
-- `approve()` — `approverId` deve ser diferente do `submitterId` (segregação de papéis)
+**Invariantes:**
+- `allocatedAmount` deve ser maior que zero
+- `proportionInBasisPoints` deve ser maior que zero
+- `proportionInBasisPoints` não pode ultrapassar 10000 (100%)
 
-**Operações implementadas:**
-- Getters: `getId()`, `getTotalAmount()`, `getSubmitterId()`, `getStatus()`, `getLines()`, `getReceipt()`
-- `addLine(ExpenseLine): void`
-- `submit(): void` — `DRAFT → SUBMITTED`
-- `approve(UserId): void` — `SUBMITTED → APPROVED`
+**Operações:** `getProjectId()`, `getAllocatedAmount()`, `getProportionInBasisPoints()`, `getProportionAsPercentage(): string`, `equals(CostDistribution): bool`.
 
-**Testes:** `tests/Unit/SpendManagement/Domain/Entities/ExpenseTest.php` — ✅ 100% de cobertura.
-Casos cobertos: criação válida, rejeição de totalAmount zero/negativo, rejeição de UUID inválido, rejeição de moedas incompatíveis entre Receipt e totalAmount, addLine (válido + rejeição fora de DRAFT), submit sem linhas, approve com aprovador igual ao submissor.
+**Decisão de design:** `CostDistribution` é apenas o **container** do resultado — a complexidade real está no `CostDistributionCalculator` (Domain Service), que executa o algoritmo de rateio com Penny Rounding Rule e **produz** os VOs.
+
+**Testes:** `tests/Unit/SpendManagement/Domain/ValueObjects/CostDistributionTest.php` — ✅ 100% de cobertura.
 
 ---
 
@@ -203,10 +155,11 @@ Casos cobertos: criação válida, rejeição de totalAmount zero/negativo, reje
 | `ExpenseStatus` | Enum | ✅ Concluído |
 | `DistributionType` | Enum | ✅ Concluído |
 | `Receipt` | Value Object | ✅ Concluído |
+| `CostDistribution` | Value Object | ✅ Concluído |
 | `ExpenseLine` | Entidade | ✅ Concluído |
 | `Expense` | Aggregate Root | ✅ Concluído |
-| `CostDistribution` | Value Object | 🔜 Próximo |
-| `IExpenseRepository` | Interface | ⏳ Não iniciado |
+| `IExpenseRepository` | Interface | 🔜 Próximo |
+| `CostDistributionCalculator` | Domain Service | ⏳ A seguir |
 
 ### Demais Bounded Contexts
 
@@ -239,8 +192,8 @@ Casos cobertos: criação válida, rejeição de totalAmount zero/negativo, reje
 
 ## 6. Próximos Passos de Engenharia
 
-1. **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
-2. **`IExpenseRepository`** — Interface de repositório na camada de Domain
-3. **Domain Events** — `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
-4. **README** — ✅ Adicionado com badges, arquitetura, stack e status de implementação
+1. **`IExpenseRepository`** — Interface de repositório na camada de Domain
+2. **Domain Events** — `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
+3. **`CostDistributionCalculator`** — Domain Service com algoritmo de rateio e Penny Rounding Rule
+4. **README** — ✅ Adicionado
 5. **LICENSE** — ✅ CC BY-NC 4.0
