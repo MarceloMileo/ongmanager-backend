@@ -6,5 +6,11 @@ jobs:
   hello:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        run: actions/checkout@v4
+
+      - name: List files
+        run: ls -la
+
       - name: Say hello
-        run: echo "Meu primeiro workflow rodando!"
+        run: echo "Meu primeiro workflow rodando!!!"
