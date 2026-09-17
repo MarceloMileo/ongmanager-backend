@@ -78,6 +78,7 @@ class Expense
         return $this->status;
     }
 
+    /** @return array<ExpenseLine> */
     public function getLines(): array
     {
         return $this->lines;

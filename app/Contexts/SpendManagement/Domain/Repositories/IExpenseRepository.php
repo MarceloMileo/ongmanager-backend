@@ -20,8 +20,10 @@ interface IExpenseRepository
     public function delete(Expense $expense): void;
 
     // Busca uma collection de Expenses pelo status
+    /** @return array<Expense> */
     public function findByStatus(ExpenseStatus $status): array;
 
     // Busca uma collection ex Expenses por usuario submissor
+    /** @return array<Expense> */
     public function findBySubmitter(UserId $id): array;
 }

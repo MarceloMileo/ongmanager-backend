@@ -49,7 +49,7 @@ final readonly class ExchangeRate
 
         // Armazena a taxa como string para manter a precisão decimal arbitrária via bcmath
         $rateStr = (string) $rate;
-        if (bccomp($rateStr, '0', 4) <= 0) {
+        if (bccomp((string)(float)$rateStr, '0', 4) <= 0) {
             throw new InvalidArgumentException('A taxa de cambio deve ser maior que zero');
         }
 
@@ -101,7 +101,7 @@ final readonly class ExchangeRate
 
         // Executa a conversão: target_cents = source_cents * rate
         // Usado bcmath com precisão temporaria de 4 casas decimais
-        $convertedAmount = bcmul((string) $money->getAmountInCents(), $this->rate, 4);
+        $convertedAmount = bcmul((string) $money->getAmountInCents(), (string)(float)$this->rate, 4);
 
         // Arredonda para o inteiro (centavos) mais proximo de acordo com o padrão contabil
         $roundedCents = (int) round((float) $convertedAmount, 0, PHP_ROUND_HALF_UP);
@@ -117,7 +117,7 @@ final readonly class ExchangeRate
     {
         return $this->sourceCurrency === $other->sourceCurrency
             && $this->targetCurrency === $other->targetCurrency
-            && bccomp($this->rate, $other->rate, 4) === 0
+            && bccomp((string)(float)$this->rate, (string)(float)$other->rate, 4) === 0
             && $this->date->getTimestamp() === $other->date->getTimestamp();
     }
 }
