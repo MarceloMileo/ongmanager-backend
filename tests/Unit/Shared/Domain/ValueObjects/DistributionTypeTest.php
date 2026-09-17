@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Shared\Domain\ValueObjects;
 
-use PHPUnit\Framework\TestCase;
 use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
+use PHPUnit\Framework\TestCase;
 
 class DistributionTypeTest extends TestCase
 {

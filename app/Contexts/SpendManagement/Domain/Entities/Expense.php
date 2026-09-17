@@ -4,29 +4,32 @@ declare(strict_types=1);
 
 namespace App\Contexts\SpendManagement\Domain\Entities;
 
-use InvalidArgumentException;
-
-use App\Contexts\Shared\Domain\ValueObjects\Receipt;
-use App\Contexts\Shared\Domain\ValueObjects\Money;
-use App\Contexts\Shared\Domain\ValueObjects\UserId;
 use App\Contexts\Shared\Domain\ValueObjects\ExpenseStatus;
-use App\Contexts\SpendManagement\Domain\Entities\ExpenseLine;
+use App\Contexts\Shared\Domain\ValueObjects\Money;
+use App\Contexts\Shared\Domain\ValueObjects\Receipt;
+use App\Contexts\Shared\Domain\ValueObjects\UserId;
+use InvalidArgumentException;
 use Ramsey\Uuid\Uuid;
 
 class Expense
 {
     private string $id;
+
     private Receipt $receipt;
+
     private Money $totalAmount;
+
     private UserId $submitterId;
+
     private ExpenseStatus $status;
+
     /** @var ExpenseLine[] */
     private array $lines = [];
 
     private function assertValidAmount(Money $totalAmount): void
     {
         if ($totalAmount->getAmountInCents() <= 0) {
-            throw new InvalidArgumentException("O valor da despesa deve ser maior que zero.");
+            throw new InvalidArgumentException('O valor da despesa deve ser maior que zero.');
         }
     }
 
@@ -36,7 +39,7 @@ class Expense
         Money $totalAmount,
         UserId $submitterId
     ) {
-        if (!Uuid::isValid($id)) {
+        if (! Uuid::isValid($id)) {
             throw new InvalidArgumentException(sprintf('O valor "%s" não é um UUID válido.', $id));
         }
 
@@ -88,7 +91,7 @@ class Expense
     public function addLine(ExpenseLine $line): void
     {
         if ($this->status !== ExpenseStatus::DRAFT) {
-            throw new InvalidArgumentException("Linhas só podem ser adicionadas enquanto a despesa estiver em rascunho.");
+            throw new InvalidArgumentException('Linhas só podem ser adicionadas enquanto a despesa estiver em rascunho.');
         }
         $this->lines[] = $line;
     }
@@ -96,7 +99,7 @@ class Expense
     public function submit(): void
     {
         if (empty($this->lines)) {
-            throw new InvalidArgumentException("A despesa só pode ser submetida com pelo menos uma linha adicionada.");
+            throw new InvalidArgumentException('A despesa só pode ser submetida com pelo menos uma linha adicionada.');
         }
         $this->status = ExpenseStatus::SUBMITTED;
     }
@@ -104,7 +107,7 @@ class Expense
     public function approve(UserId $approverId): void
     {
         if ($this->submitterId->equals($approverId)) {
-            throw new InvalidArgumentException("O aprovador não pode ser o mesmo usuário que submeteu a despesa.");
+            throw new InvalidArgumentException('O aprovador não pode ser o mesmo usuário que submeteu a despesa.');
         }
         $this->status = ExpenseStatus::APPROVED;
     }

@@ -19,8 +19,11 @@ use InvalidArgumentException;
 final readonly class ExchangeRate
 {
     private string $sourceCurrency;
+
     private string $targetCurrency;
+
     private string $rate;
+
     private DateTimeImmutable $date;
 
     public function __construct(
@@ -44,12 +47,11 @@ final readonly class ExchangeRate
             throw new InvalidArgumentException('A moeda de origem e destino não podem ser iguais para a conversão');
         }
 
-        //Armazena a taxa como string para manter a precisão decimal arbitrária via bcmath
-        $rateStr = (string)$rate;
+        // Armazena a taxa como string para manter a precisão decimal arbitrária via bcmath
+        $rateStr = (string) $rate;
         if (bccomp($rateStr, '0', 4) <= 0) {
             throw new InvalidArgumentException('A taxa de cambio deve ser maior que zero');
         }
-
 
         // Toda data/hora gravada no sistema deve estar em UTC para garantir
         // consistência em fechamentos contábeis entre fusos horários distintos.
@@ -99,10 +101,10 @@ final readonly class ExchangeRate
 
         // Executa a conversão: target_cents = source_cents * rate
         // Usado bcmath com precisão temporaria de 4 casas decimais
-        $convertedAmount = bcmul((string)$money->getAmountInCents(), $this->rate, 4);
+        $convertedAmount = bcmul((string) $money->getAmountInCents(), $this->rate, 4);
 
         // Arredonda para o inteiro (centavos) mais proximo de acordo com o padrão contabil
-        $roundedCents = (int)round((float)$convertedAmount, 0, PHP_ROUND_HALF_UP);
+        $roundedCents = (int) round((float) $convertedAmount, 0, PHP_ROUND_HALF_UP);
 
         return new Money($roundedCents, $this->targetCurrency);
     }

@@ -4,26 +4,29 @@ declare(strict_types=1);
 
 namespace App\Contexts\SpendManagement\Domain\Entities;
 
-use InvalidArgumentException;
-
 use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
 use App\Contexts\Shared\Domain\ValueObjects\ExchangeRate;
-use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
+use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
+use InvalidArgumentException;
 use Ramsey\Uuid\Uuid;
 
 class ExpenseLine
 {
     private string $id;
+
     private ProjectId $projectId;
+
     private Money $amount;
+
     private ?ExchangeRate $exchangeRate;
+
     private DistributionType $distributionType;
 
     private function assertValidAmount(Money $amount): void
     {
         if ($amount->getAmountInCents() <= 0) {
-            throw new InvalidArgumentException("O valor da linha de despesa deve ser maior que zero.");
+            throw new InvalidArgumentException('O valor da linha de despesa deve ser maior que zero.');
         }
     }
 
@@ -34,7 +37,7 @@ class ExpenseLine
         DistributionType $distributionType,
         ?ExchangeRate $exchangeRate = null
     ) {
-        if (!Uuid::isValid($id)) {
+        if (! Uuid::isValid($id)) {
             throw new InvalidArgumentException(sprintf('O valor "%s" não é um UUID válido.', $id));
         }
 

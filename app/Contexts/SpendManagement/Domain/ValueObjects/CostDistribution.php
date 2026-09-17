@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Contexts\SpendManagement\Domain\ValueObjects;
 
-use InvalidArgumentException;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
 use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
+use InvalidArgumentException;
 
 /**
  * Value Object imutável que representa a distribuição de custo de uma despesa
@@ -21,7 +21,9 @@ use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
 final readonly class CostDistribution
 {
     private ProjectId $projectId;
+
     private Money $allocatedAmount;
+
     private int $proportionInBasisPoints;
 
     public function __construct(
@@ -47,8 +49,8 @@ final readonly class CostDistribution
             );
         }
 
-        $this->projectId               = $projectId;
-        $this->allocatedAmount         = $allocatedAmount;
+        $this->projectId = $projectId;
+        $this->allocatedAmount = $allocatedAmount;
         $this->proportionInBasisPoints = $proportionInBasisPoints;
     }
 
@@ -73,7 +75,7 @@ final readonly class CostDistribution
      */
     public function getProportionAsPercentage(): string
     {
-        return number_format($this->proportionInBasisPoints / 100, 2) . '%';
+        return number_format($this->proportionInBasisPoints / 100, 2).'%';
     }
 
     /**

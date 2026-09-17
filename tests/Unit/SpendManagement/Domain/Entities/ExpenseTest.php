@@ -4,25 +4,25 @@ declare(strict_types=1);
 
 namespace Tests\Unit\SpendManagement\Domain\Entities;
 
-use PHPUnit\Framework\TestCase;
-use InvalidArgumentException;
+use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
+use App\Contexts\Shared\Domain\ValueObjects\ExpenseStatus;
+use App\Contexts\Shared\Domain\ValueObjects\Money;
+use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
+use App\Contexts\Shared\Domain\ValueObjects\Receipt;
+use App\Contexts\Shared\Domain\ValueObjects\UserId;
+use App\Contexts\SpendManagement\Domain\Entities\Expense;
+use App\Contexts\SpendManagement\Domain\Entities\ExpenseLine;
 use DateTimeImmutable;
 use DateTimeZone;
-
-use App\Contexts\Shared\Domain\ValueObjects\ExpenseStatus;
-use App\Contexts\Shared\Domain\ValueObjects\Receipt;
-use App\Contexts\Shared\Domain\ValueObjects\Money;
-use App\Contexts\Shared\Domain\ValueObjects\UserId;
-use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
-use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
-
-use App\Contexts\SpendManagement\Domain\Entities\ExpenseLine;
-use App\Contexts\SpendManagement\Domain\Entities\Expense;
+use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
 
 class ExpenseTest extends TestCase
 {
     private Expense $expense;
+
     private Receipt $receipt;
+
     // ─────────────────────────────────────────────
     // Helper: retorna uma data UTC válida para os testes
     // ─────────────────────────────────────────────

@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace Tests\Unit\SpendManagement\Domain\Entities;
 
-use PHPUnit\Framework\TestCase;
+use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
+use App\Contexts\Shared\Domain\ValueObjects\ExchangeRate;
+use App\Contexts\Shared\Domain\ValueObjects\Money;
+use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
+use App\Contexts\SpendManagement\Domain\Entities\ExpenseLine;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
-
-use App\Contexts\Shared\Domain\ValueObjects\DistributionType;
-use App\Contexts\Shared\Domain\ValueObjects\ExchangeRate;
-use App\Contexts\SpendManagement\Domain\Entities\ExpenseLine;
-use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
-use App\Contexts\Shared\Domain\ValueObjects\Money;
+use PHPUnit\Framework\TestCase;
 
 class ExpenseLineTest extends TestCase
 {
     private ExpenseLine $expenseLine;
+
     private ProjectId $projectId;
 
     // ─────────────────────────────────────────────

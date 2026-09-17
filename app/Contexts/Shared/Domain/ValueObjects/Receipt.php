@@ -4,16 +4,19 @@ declare(strict_types=1);
 
 namespace App\Contexts\Shared\Domain\ValueObjects;
 
-use InvalidArgumentException;
 use DateTimeImmutable;
+use InvalidArgumentException;
 
 final readonly class Receipt
 {
-
     private Money $documentValue;
+
     private string $fileReference;
+
     private ?string $documentNumber;
+
     private ?string $issuerIdentifier;
+
     private ?DateTimeImmutable $issuedAt;
 
     public function __construct(
@@ -26,11 +29,11 @@ final readonly class Receipt
         $fileReference = trim($fileReference);
 
         if (empty($fileReference)) {
-            throw new InvalidArgumentException("Caminho do recibo não pode ser vazio");
+            throw new InvalidArgumentException('Caminho do recibo não pode ser vazio');
         }
 
         if ($documentValue->getAmountInCents() <= 0) {
-            throw new InvalidArgumentException("O valor do recibo deve ser maior que zero");
+            throw new InvalidArgumentException('O valor do recibo deve ser maior que zero');
         }
 
         if ($issuedAt !== null && $issuedAt->getTimezone()->getName() !== 'UTC') {

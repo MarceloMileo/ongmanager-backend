@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Shared\Domain\ValueObjects;
 
-use PHPUnit\Framework\TestCase;
 use App\Contexts\Shared\Domain\ValueObjects\ProjectId;
 use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
 
 class ProjectIdTest extends TestCase
 {
@@ -52,7 +52,7 @@ class ProjectIdTest extends TestCase
 
     public function test_should_generate_unique_uuids(): void
     {
-        $first  = ProjectId::generate();
+        $first = ProjectId::generate();
         $second = ProjectId::generate();
 
         $this->assertFalse($first->equals($second));

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Shared\Domain\ValueObjects;
 
-use PHPUnit\Framework\TestCase;
 use App\Contexts\Shared\Domain\ValueObjects\UserId;
 use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
 
 class UserIdTest extends TestCase
 {
@@ -51,7 +51,7 @@ class UserIdTest extends TestCase
 
     public function test_should_generate_unique_uuids(): void
     {
-        $first  = UserId::generate();
+        $first = UserId::generate();
         $second = UserId::generate();
 
         $this->assertFalse($first->equals($second));

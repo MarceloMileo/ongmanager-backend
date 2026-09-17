@@ -176,7 +176,7 @@ class MoneyTest extends TestCase
     public function test_should_multiply_with_correct_rounding(): void
     {
         // 100 * 1.155 = 115.5 → HALF_UP → 116
-        $money  = new Money(100, 'BRL');
+        $money = new Money(100, 'BRL');
         $result = $money->multiply(1.155);
 
         $this->assertSame(116, $result->getAmountInCents());
@@ -198,7 +198,7 @@ class MoneyTest extends TestCase
     {
         // BRL 1,00 dividido em 3 partes iguais:
         // 100 / 3 = 33.333... → 34 + 33 + 33 = 100 (sem perda de centavos)
-        $money  = new Money(100, 'BRL');
+        $money = new Money(100, 'BRL');
         $shares = $money->allocate([1, 1, 1]);
 
         $this->assertCount(3, $shares);
@@ -209,7 +209,7 @@ class MoneyTest extends TestCase
 
     public function test_allocate_sum_must_equal_original_amount(): void
     {
-        $money  = new Money(100, 'BRL');
+        $money = new Money(100, 'BRL');
         $shares = $money->allocate([1, 1, 1]);
 
         $sum = $shares[0]->add($shares[1])->add($shares[2]);
@@ -221,7 +221,7 @@ class MoneyTest extends TestCase
     {
         // BRL 1,00 dividido em proporção 70/30:
         // 70% = 70 cents, 30% = 30 cents
-        $money  = new Money(100, 'BRL');
+        $money = new Money(100, 'BRL');
         $shares = $money->allocate([70, 30]);
 
         $this->assertSame(70, $shares[0]->getAmountInCents());

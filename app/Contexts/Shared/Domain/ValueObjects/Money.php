@@ -13,6 +13,7 @@ use InvalidArgumentException;
 final readonly class Money
 {
     private int $amountInCents;
+
     private string $currency;
 
     public function __construct(int $amountInCents, string $currency)
@@ -52,9 +53,9 @@ final readonly class Money
     {
         $this->assertSameCurrency($other);
 
-        $result = bcadd((string)$this->amountInCents, (string)$other->amountInCents, 0);
+        $result = bcadd((string) $this->amountInCents, (string) $other->amountInCents, 0);
 
-        return new self((int)$result, $this->currency);
+        return new self((int) $result, $this->currency);
     }
 
     /**
@@ -64,9 +65,9 @@ final readonly class Money
     {
         $this->assertSameCurrency($other);
 
-        $result = bcsub((string)$this->amountInCents, (string)$other->amountInCents, 0);
+        $result = bcsub((string) $this->amountInCents, (string) $other->amountInCents, 0);
 
-        return new self((int)$result, $this->currency);
+        return new self((int) $result, $this->currency);
     }
 
     /**
@@ -74,10 +75,10 @@ final readonly class Money
      */
     public function multiply(float|string $multiplier, int $roundingMode = PHP_ROUND_HALF_UP): self
     {
-        //Multiplica usando bcmath com alta precisão temporária (4 casas decimais)
-        $result = bcmul((string)$this->amountInCents, (string)$multiplier, 4);
+        // Multiplica usando bcmath com alta precisão temporária (4 casas decimais)
+        $result = bcmul((string) $this->amountInCents, (string) $multiplier, 4);
 
-        //Arredonda para o centavo mais próximo de acordo com o modo configurado
+        // Arredonda para o centavo mais próximo de acordo com o modo configurado
         $roundedAmount = (int) round((float) $result, 0, $roundingMode);
 
         return new self($roundedAmount, $this->currency);
@@ -87,7 +88,7 @@ final readonly class Money
      * Distribui o dinheiro de forma proporcional entre várias fatias sem perder centavos.
      * (Algoritmo de Alocação Proporcional de Martin Fowler)
      *
-     * @param array<int> $ratios Lista de pesos ou proporções (ex: [1, 1, 1] para partes iguais)
+     * @param  array<int>  $ratios  Lista de pesos ou proporções (ex: [1, 1, 1] para partes iguais)
      * @return array<Money>
      */
     public function allocate(array $ratios): array
@@ -119,18 +120,20 @@ final readonly class Money
         }
 
         // Mapeia os inteiros de volta para instâncias ricas de Money
-        return array_map(fn($amount) => new self($amount, $this->currency), $results);
+        return array_map(fn ($amount) => new self($amount, $this->currency), $results);
     }
 
     public function isGreaterThan(Money $other): bool
     {
         $this->assertSameCurrency($other);
+
         return $this->amountInCents > $other->amountInCents;
     }
 
     public function isLessThan(Money $other): bool
     {
         $this->assertSameCurrency($other);
+
         return $this->amountInCents < $other->amountInCents;
     }
 

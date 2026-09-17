@@ -18,7 +18,7 @@ final readonly class ProjectId
 
     public function __construct(string $value)
     {
-        if (!Uuid::isValid($value)) {
+        if (! Uuid::isValid($value)) {
             throw new InvalidArgumentException(sprintf('O valor "%s" não é um UUID válido.', $value));
         }
 

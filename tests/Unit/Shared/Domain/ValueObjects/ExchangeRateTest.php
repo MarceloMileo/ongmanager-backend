@@ -100,7 +100,7 @@ class ExchangeRateTest extends TestCase
         // $10.00 USD = 1000 cents
         // 1000 * 900.50 = 900.500 cents CLP = 9.005,00 CLP
         $exchange = new ExchangeRate('USD', 'CLP', '900.50', $this->utcDate());
-        $usdMoney  = new Money(1000, 'USD');
+        $usdMoney = new Money(1000, 'USD');
 
         $clpMoney = $exchange->convert($usdMoney);
 
@@ -114,7 +114,7 @@ class ExchangeRateTest extends TestCase
         // $1.00 USD = 100 cents
         // 100 * 0.9155 = 91.55 cents → arredonda HALF_UP → 92 cents
         $exchange = new ExchangeRate('USD', 'EUR', '0.9155', $this->utcDate());
-        $usdMoney  = new Money(100, 'USD');
+        $usdMoney = new Money(100, 'USD');
 
         $eurMoney = $exchange->convert($usdMoney);
 
@@ -127,7 +127,7 @@ class ExchangeRateTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         $exchange = new ExchangeRate('USD', 'CLP', '900', $this->utcDate());
-        $brlMoney  = new Money(1000, 'BRL');
+        $brlMoney = new Money(1000, 'BRL');
 
         $exchange->convert($brlMoney);
     }
@@ -139,8 +139,8 @@ class ExchangeRateTest extends TestCase
     public function test_should_consider_equal_exchange_rates_with_same_values(): void
     {
         $date = $this->utcDate();
-        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
-        $b    = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $a = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b = new ExchangeRate('USD', 'BRL', '5.70', $date);
 
         $this->assertTrue($a->equals($b));
     }
@@ -148,8 +148,8 @@ class ExchangeRateTest extends TestCase
     public function test_should_consider_different_exchange_rates_with_different_rate_values(): void
     {
         $date = $this->utcDate();
-        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
-        $b    = new ExchangeRate('USD', 'BRL', '5.71', $date);
+        $a = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b = new ExchangeRate('USD', 'BRL', '5.71', $date);
 
         $this->assertFalse($a->equals($b));
     }
@@ -165,8 +165,8 @@ class ExchangeRateTest extends TestCase
     public function test_should_consider_different_exchange_rates_with_different_currencies(): void
     {
         $date = $this->utcDate();
-        $a    = new ExchangeRate('USD', 'BRL', '5.70', $date);
-        $b    = new ExchangeRate('USD', 'CLP', '900', $date);
+        $a = new ExchangeRate('USD', 'BRL', '5.70', $date);
+        $b = new ExchangeRate('USD', 'CLP', '900', $date);
 
         $this->assertFalse($a->equals($b));
     }

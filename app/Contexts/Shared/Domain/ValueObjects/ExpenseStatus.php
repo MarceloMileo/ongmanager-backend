@@ -6,9 +6,9 @@ namespace App\Contexts\Shared\Domain\ValueObjects;
 
 enum ExpenseStatus: string
 {
-    case DRAFT     = 'draft';
+    case DRAFT = 'draft';
     case SUBMITTED = 'submitted';
-    case APPROVED  = 'approved';
-    case REJECTED  = 'rejected';
-    case PAID      = 'paid';
+    case APPROVED = 'approved';
+    case REJECTED = 'rejected';
+    case PAID = 'paid';
 }

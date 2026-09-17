@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Shared\Domain\ValueObjects;
 
-use PHPUnit\Framework\TestCase;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
 use App\Contexts\Shared\Domain\ValueObjects\Receipt;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
 
 class ReceiptTest extends TestCase
 {
@@ -28,7 +28,7 @@ class ReceiptTest extends TestCase
 
     public function test_should_create_instance_successfully(): void
     {
-        $money   = new Money(1500, 'BRL');
+        $money = new Money(1500, 'BRL');
         $receipt = new Receipt('path/arquivo/recibo', $money);
 
         $this->assertSame(1500, $receipt->getDocumentValue()->getAmountInCents());
@@ -79,7 +79,7 @@ class ReceiptTest extends TestCase
 
     public function test_should_store_optional_fields_when_provided(): void
     {
-        $date    = $this->utcDate();
+        $date = $this->utcDate();
         $receipt = new Receipt(
             fileReference: 'path/arquivo/recibo',
             documentValue: new Money(1500, 'BRL'),
@@ -99,8 +99,8 @@ class ReceiptTest extends TestCase
 
     public function test_should_be_immutable(): void
     {
-        $money    = new Money(1500, 'BRL');
-        $receipt  = new Receipt('path/arquivo/recibo', $money);
+        $money = new Money(1500, 'BRL');
+        $receipt = new Receipt('path/arquivo/recibo', $money);
         $receipt2 = new Receipt('path/arquivo/recibo', $money);
 
         $this->assertNotSame($receipt, $receipt2);
