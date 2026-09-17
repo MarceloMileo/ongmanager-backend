@@ -136,3 +136,85 @@ php artisan test --filter test_should_create_instance_successfully
 # Nota: requer driver de cobertura instalado ou ativo (ex: pcov ou xdebug)
 ./vendor/bin/phpunit --coverage-text
 ```
+
+## 7. CI/CD (GitHub Actions)
+
+O pipeline de CI roda em `.github/workflows/ci.yml` e é disparado automaticamente a cada `push`. Cobre: checkout do código, setup do PHP 8.3, cache de dependências, testes (PHPUnit), formatação (Pint) e análise estática (PHPStan).
+
+### Estrutura de pastas
+
+```bash
+# Onde o GitHub procura workflows (convenção, não precisa configurar)
+.github/workflows/ci.yml
+```
+
+### Validação local antes de subir (sempre rodar antes do push)
+
+```bash
+# Formatação de código (Laravel preset) — modo verificação, não altera nada
+vendor/bin/pint --test
+
+# Formatação de código — modo correção, aplica as mudanças direto nos arquivos
+vendor/bin/pint
+
+# Análise estática (nível 8, com extensão Larastan pra entender o Laravel)
+vendor/bin/phpstan analyse
+
+# Suíte de testes completa
+vendor/bin/phpunit
+```
+
+### Instalação das ferramentas de qualidade
+
+```bash
+# PHPStan com suporte a Laravel (Facades, Eloquent, etc.)
+composer require --dev larastan/larastan
+
+# Pint geralmente já vem no skeleton do Laravel — confirmar antes de instalar
+composer show laravel/pint
+```
+
+### Arquivos de configuração
+
+**`phpstan.neon`** (raiz do projeto):
+
+```neon
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 8
+    paths:
+        - app
+```
+
+**`pint.json`** (raiz do projeto):
+
+```json
+{
+    "preset": "laravel"
+}
+```
+
+> ⚠️ **Nota:** o preset `laravel` foi escolhido em vez de `psr12` porque o `psr12` estrito conflita com código gerado pelo próprio Laravel (ex: migrations usam `new class extends Migration` sem parênteses, o que o PSR-12 exige explicitamente). O preset `laravel` já é compatível com as convenções que o framework mesmo usa.
+
+### Git — comandos usados que valem lembrar
+
+```bash
+# Commit vazio — útil pra forçar uma nova execução do workflow sem alterar código
+# (ex: pra testar cache do Composer em duas execuções consecutivas)
+git commit --allow-empty -m "test: mensagem"
+
+# git add -A vs git add .
+# -A também registra deleções de arquivos rastreados; "." só olha alterações/novos arquivos
+git add -A
+```
+
+> ⚠️ **Pegadinha do Git:** pastas vazias não são versionadas. Se apagar o último arquivo de uma pasta (ex: `tests/Feature/ExampleTest.php`), a pasta some do repositório remoto mesmo continuando a existir localmente. Isso pode quebrar configs que referenciam a pasta (ex: `phpunit.xml` apontando pra `tests/Feature`) só no CI, não localmente — clássico "funciona na minha máquina".
+
+### Segurança de dependências (pendente de aprofundar)
+
+```bash
+# Lista vulnerabilidades conhecidas nas dependências instaladas
+composer audit
+```
