@@ -1,0 +1,15 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Contexts\SpendManagement\Domain\Events;
+
+use DateTimeImmutable;
+
+final readonly class ExpensePaid
+{
+    public function __construct(
+        public string $expenseId,
+        public DateTimeImmutable $occurredAt
+    ) {}
+}

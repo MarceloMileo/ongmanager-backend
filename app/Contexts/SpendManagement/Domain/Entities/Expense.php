@@ -8,6 +8,10 @@ use App\Contexts\Shared\Domain\ValueObjects\ExpenseStatus;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
 use App\Contexts\Shared\Domain\ValueObjects\Receipt;
 use App\Contexts\Shared\Domain\ValueObjects\UserId;
+use App\Contexts\SpendManagement\Domain\Events\ExpenseApproved;
+use App\Contexts\SpendManagement\Domain\Events\ExpenseSubmitted;
+use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use Ramsey\Uuid\Uuid;
 
@@ -25,6 +29,9 @@ class Expense
 
     /** @var ExpenseLine[] */
     private array $lines = [];
+
+    /** @var array<object> */
+    private array $domainEvents = [];
 
     private function assertValidAmount(Money $totalAmount): void
     {
@@ -56,6 +63,20 @@ class Expense
         $this->totalAmount = $totalAmount;
         $this->submitterId = $submitterId;
         $this->status = ExpenseStatus::DRAFT;
+    }
+
+    private function recordEvent(object $event): void
+    {
+        $this->domainEvents[] = $event;
+    }
+
+    /** @return array<object> */
+    public function pullDomainEvents(): array
+    {
+        $events = $this->domainEvents;
+        $this->domainEvents = [];
+
+        return $events;
     }
 
     public function getId(): string
@@ -103,6 +124,11 @@ class Expense
             throw new InvalidArgumentException('A despesa só pode ser submetida com pelo menos uma linha adicionada.');
         }
         $this->status = ExpenseStatus::SUBMITTED;
+        $this->recordEvent(new ExpenseSubmitted(
+            $this->id,
+            $this->submitterId->toString(),
+            new DateTimeImmutable('now', new DateTimeZone('UTC'))
+        ));
     }
 
     public function approve(UserId $approverId): void
@@ -111,5 +137,10 @@ class Expense
             throw new InvalidArgumentException('O aprovador não pode ser o mesmo usuário que submeteu a despesa.');
         }
         $this->status = ExpenseStatus::APPROVED;
+        $this->recordEvent(new ExpenseApproved(
+            $this->id,
+            $approverId->toString(),
+            new DateTimeImmutable('now', new DateTimeZone('UTC'))
+        ));
     }
 }
