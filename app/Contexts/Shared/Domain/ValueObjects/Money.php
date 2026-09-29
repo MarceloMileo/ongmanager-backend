@@ -72,12 +72,13 @@ final readonly class Money
 
     /**
      * Multiplica o valor por um fator decimal (ex: taxa de juros, conversão), aplicando arredondamento correto.
-     * @param 1|2|3|4 $roundingMode
+     *
+     * @param  1|2|3|4  $roundingMode
      */
     public function multiply(float|string $multiplier, int $roundingMode = PHP_ROUND_HALF_UP): self
     {
         // Multiplica usando bcmath com alta precisão temporária (4 casas decimais)
-        $result = bcmul((string) $this->amountInCents, (string)(float) $multiplier, 4);
+        $result = bcmul((string) $this->amountInCents, (string) (float) $multiplier, 4);
 
         // Arredonda para o centavo mais próximo de acordo com o modo configurado
         $roundedAmount = (int) round((float) $result, 0, $roundingMode);
@@ -121,7 +122,7 @@ final readonly class Money
         }
 
         // Mapeia os inteiros de volta para instâncias ricas de Money
-        return array_map(fn($amount) => new self($amount, $this->currency), $results);
+        return array_map(fn ($amount) => new self($amount, $this->currency), $results);
     }
 
     public function isGreaterThan(Money $other): bool
