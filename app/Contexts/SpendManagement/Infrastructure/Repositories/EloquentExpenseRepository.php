@@ -6,12 +6,11 @@ namespace App\Contexts\SpendManagement\Infrastructure\Repositories;
 
 use App\Contexts\Shared\Domain\ValueObjects\ExpenseStatus;
 use App\Contexts\Shared\Domain\ValueObjects\Money;
+use App\Contexts\Shared\Domain\ValueObjects\Receipt;
 use App\Contexts\Shared\Domain\ValueObjects\UserId;
 use App\Contexts\SpendManagement\Domain\Entities\Expense;
-use App\Contexts\Shared\Domain\ValueObjects\Receipt;
 use App\Contexts\SpendManagement\Domain\Repositories\IExpenseRepository;
 use App\Contexts\SpendManagement\Infrastructure\Models\ExpenseModel;
-use App\Contexts\SpendManagement\Infrastructure\Models\ReceiptModel;
 use DateTimeImmutable;
 
 class EloquentExpenseRepository implements IExpenseRepository
@@ -33,7 +32,7 @@ class EloquentExpenseRepository implements IExpenseRepository
     {
         $model = ExpenseModel::find($id);
 
-        if (!$model) {
+        if (! $model) {
             return null;
         }
 
@@ -66,6 +65,10 @@ class EloquentExpenseRepository implements IExpenseRepository
     private function toDomain(ExpenseModel $model): Expense
     {
         $receipt = $model->receipt;
+
+        if (!$receipt) {
+            throw new \RuntimeException('Expense sem receipt: ' . $model->id);
+        }
 
         $domainReceipt = new Receipt(
             $receipt->file_reference,

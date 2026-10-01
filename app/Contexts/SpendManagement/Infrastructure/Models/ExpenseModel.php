@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Contexts\SpendManagement\Infrastructure\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ExpenseModel extends Model
 {
@@ -19,10 +20,11 @@ class ExpenseModel extends Model
         'submitter_id',
         'status',
         'total_amount_cents',
-        'total_amount_currency'
+        'total_amount_currency',
     ];
 
-    public function receipt(): \Illuminate\Database\Eloquent\Relations\HasOne
+    /** @phpstan-return HasOne<ReceiptModel, ExpenseModel> */
+    public function receipt(): HasOne
     {
         return $this->hasOne(ReceiptModel::class, 'expense_id');
     }
