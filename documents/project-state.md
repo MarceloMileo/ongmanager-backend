@@ -28,6 +28,7 @@
 - **Infraestrutura como Código (IaC):** Terraform para provisionamento automatizado AWS (ECS Fargate, RDS PostgreSQL, VPC, ElastiCache Redis, Amazon MQ).
 - **Observabilidade:** OpenTelemetry (OTel) + Loki/Prometheus/Tempo integrados ao Grafana Cloud.
 - **Gestão de Segredos:** Mozilla SOPS integrado com AWS KMS (segredos cifrados diretamente no repositório, garantindo GitOps puro).
+- **Análise Estática:** PHPStan nível 8 com Larastan — zero erros obrigatório no pipeline.
 
 ### ADR 0002: Arquitetura de Software e DDD
 
@@ -45,7 +46,7 @@
 - **Localização de Respostas da API:** Middleware global lê o cabeçalho `Accept-Language` e configura o locale via Laravel localization.
 - **Isolamento de Regras Fiscais:** Strategy Pattern resolvido em tempo de execução com base no país do Tenant (`BrazilianFiscalStrategy`, `ChileanFiscalStrategy`).
 - **Persistência de Textos Multilíngues:** Colunas com traduções dinâmicas usam `JSONB` no PostgreSQL. Formato: `{"pt_BR": "...", "es_CL": "...", "en": "..."}`.
-- **Fuso Horário Global:** Toda data/hora persistida em UTC no banco. Conversão para horário local resolvida na camada de exibição (client-side). **Invariante de domínio:** Value Objects que recebem `DateTimeImmutable` devem validar e rejeitar timezones não-UTC.
+- **Fuso Horário Global:** Toda data/hora persistida em UTC no banco. Conversão para horário local resolvida na camada de exibição (client-side).
 
 ### ADR 0004: Modelagem Tática do SpendManagement
 
@@ -53,7 +54,7 @@
 - **`ExpenseLine`** — Entidade interna do aggregate, adicionável apenas em `DRAFT`
 - **`Receipt`** — Value Object imutável obrigatório na criação da `Expense`
 - **`CostDistribution`** — Value Object de resultado do rateio com Penny Rounding Rule
-- **`ProjectId`** — Value Object no Shared Kernel; referência entre `SpendManagement` e `ProjectDelivery` por ID (sem acoplamento direto de classes)
+- **`ProjectId`** — Value Object no Shared Kernel; referência entre `SpendManagement` e `ProjectDelivery` por ID
 - **`UserId`** — Value Object no Shared Kernel; identifica submissor e aprovador da `Expense`
 - **Domain Events:** `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
 
@@ -68,6 +69,7 @@ Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `doc
 - Redis 7 Alpine
 - RabbitMQ 3 Management
 - Terraform CLI e Mozilla SOPS CLI pré-instalados
+- PHPStan nível 8 + Larastan instalados e configurados
 
 ---
 
@@ -78,7 +80,10 @@ Os arquivos `.devcontainer/Dockerfile`, `.devcontainer/devcontainer.json` e `doc
 | Item | Status |
 |---|---|
 | Instalação do Laravel 13 | ✅ Concluído |
-| Banco de Dados PostgreSQL | ✅ Concluído — migrações iniciais executadas e conexão validada |
+| Banco de Dados PostgreSQL | ✅ Concluído — migrações executadas e conexão validada |
+| PHPStan nível 8 | ✅ Concluído — zero erros |
+| Migration `expenses` | ✅ Concluído |
+| Migration `expense_receipts` | ✅ Concluído |
 
 ---
 
@@ -118,57 +123,72 @@ Comprovante fiscal imutável. `fileReference` e `documentValue` (Money > 0) obri
 
 ---
 
-### SpendManagement
+### SpendManagement — Domain Layer
 
 #### ✅ `ExpenseLine` — `app/Contexts/SpendManagement/Domain/Entities/ExpenseLine.php`
 Entidade de rateio. Getters + `changeAmount()`, `changeProject()`, `changeExchangeRate()`. `equals()` por ID.
 **Testes:** ✅ 100% de cobertura.
 
 #### ✅ `Expense` — `app/Contexts/SpendManagement/Domain/Entities/Expense.php`
-Aggregate Root. State machine `DRAFT → SUBMITTED → APPROVED`. Invariantes de moeda, segregação de papéis e consistência de linhas.
-**Operações:** `addLine()`, `submit()`, `approve(UserId)`.
+Aggregate Root. State machine `DRAFT → SUBMITTED → APPROVED`. Invariantes de moeda, segregação de papéis e consistência de linhas. Emite Domain Events via padrão collect-and-publish (`recordEvent` / `pullDomainEvents`).
+**Operações:** `addLine()`, `submit()`, `approve(UserId)`, `pullDomainEvents()`.
 **Testes:** ✅ 100% de cobertura.
 
 #### ✅ `CostDistribution` — `app/Contexts/SpendManagement/Domain/ValueObjects/CostDistribution.php`
-Value Object imutável que representa o resultado do rateio de custo para um projeto específico.
+VO do resultado do rateio. `proportionInBasisPoints` (10000 = 100%). `getProportionAsPercentage()` para exibição.
+**Testes:** ✅ 100% de cobertura.
 
-**Atributos:**
-- `projectId` — `ProjectId` de destino
-- `allocatedAmount` — `Money` na moeda base da ONG (já convertido)
-- `proportionInBasisPoints` — `int` (10000 = 100%, 3333 ≈ 33.33%)
+#### ✅ `IExpenseRepository` — `app/Contexts/SpendManagement/Domain/Repositories/IExpenseRepository.php`
+Interface de repositório. Métodos: `save()`, `findById()`, `delete()`, `findByStatus()`, `findBySubmitter()`.
 
-**Invariantes:**
-- `allocatedAmount` deve ser maior que zero
-- `proportionInBasisPoints` deve ser maior que zero
-- `proportionInBasisPoints` não pode ultrapassar 10000 (100%)
-
-**Operações:** `getProjectId()`, `getAllocatedAmount()`, `getProportionInBasisPoints()`, `getProportionAsPercentage(): string`, `equals(CostDistribution): bool`.
-
-**Decisão de design:** `CostDistribution` é apenas o **container** do resultado — a complexidade real está no `CostDistributionCalculator` (Domain Service), que executa o algoritmo de rateio com Penny Rounding Rule e **produz** os VOs.
-
-**Testes:** `tests/Unit/SpendManagement/Domain/ValueObjects/CostDistributionTest.php` — ✅ 100% de cobertura.
+#### ✅ Domain Events — `app/Contexts/SpendManagement/Domain/Events/`
+- `ExpenseSubmitted` — carrega `expenseId`, `submitterId`, `occurredAt`
+- `ExpenseApproved` — carrega `expenseId`, `approverId`, `occurredAt`
+- `ExpenseRejected` — carrega `expenseId`, `approverId`, `reason`, `occurredAt` ⚠️ método `reject()` pendente no `Expense`
+- `ExpensePaid` — carrega `expenseId`, `occurredAt` ⚠️ método `pay()` pendente no `Expense`
 
 ---
 
-| Componente | Tipo | Status |
+### SpendManagement — Application Layer
+
+#### ✅ `SubmitExpense` — `app/Contexts/SpendManagement/Application/UseCases/SubmitExpense/`
+- `SubmitExpenseCommand` — DTO com `expenseId` e `submitterId`
+- `SubmitExpenseHandler` — busca `Expense`, chama `submit()`, salva, coleta eventos
+
+#### ✅ `ApproveExpense` — `app/Contexts/SpendManagement/Application/UseCases/ApproveExpense/`
+- `ApproveExpenseCommand` — DTO com `expenseId` e `approverId`
+- `ApproveExpenseHandler` — busca `Expense`, chama `approve(UserId)`, salva, coleta eventos
+
+---
+
+### SpendManagement — Infrastructure Layer
+
+#### ✅ `ExpenseModel` — `app/Contexts/SpendManagement/Infrastructure/Models/ExpenseModel.php`
+Eloquent Model para tabela `expenses`. UUID como primary key. Relacionamento `hasOne(ReceiptModel)`.
+
+#### ✅ `ReceiptModel` — `app/Contexts/SpendManagement/Infrastructure/Models/ReceiptModel.php`
+Eloquent Model para tabela `expense_receipts`. UUID como primary key. Foreign key UUID para `expenses`.
+
+#### ✅ `EloquentExpenseRepository` — `app/Contexts/SpendManagement/Infrastructure/Repositories/EloquentExpenseRepository.php`
+Implementação concreta do `IExpenseRepository`. `toDomain()` reconstrói `Expense` + `Receipt` do banco.
+
+---
+
+| Componente | Camada | Status |
 |---|---|---|
-| `ExpenseStatus` | Enum | ✅ Concluído |
-| `DistributionType` | Enum | ✅ Concluído |
-| `Receipt` | Value Object | ✅ Concluído |
-| `CostDistribution` | Value Object | ✅ Concluído |
-| `ExpenseLine` | Entidade | ✅ Concluído |
-| `Expense` | Aggregate Root | ✅ Concluído |
-| `IExpenseRepository` | Interface | 🔜 Próximo |
+| `Money`, `ExchangeRate`, `ProjectId`, `UserId` | Shared Kernel | ✅ Concluído |
+| `ExpenseStatus`, `DistributionType` | Shared Kernel | ✅ Concluído |
+| `Receipt` | Shared Kernel | ✅ Concluído |
+| `ExpenseLine`, `Expense` | Domain | ✅ Concluído |
+| `CostDistribution` | Domain | ✅ Concluído |
+| `IExpenseRepository` | Domain | ✅ Concluído |
+| Domain Events (4) | Domain | ✅ Concluído |
+| `SubmitExpense`, `ApproveExpense` | Application | ✅ Concluído |
+| `ExpenseModel`, `ReceiptModel` | Infrastructure | ✅ Concluído |
+| `EloquentExpenseRepository` | Infrastructure | ✅ Concluído |
+| `SpendManagementServiceProvider` | Infrastructure | 🔜 Próximo |
 | `CostDistributionCalculator` | Domain Service | ⏳ A seguir |
-
-### Demais Bounded Contexts
-
-| Contexto | Status |
-|---|---|
-| `BudgetAllocation` | ⏳ Não iniciado |
-| `FiscalCompliance` | ⏳ Não iniciado |
-| `Fundraising` | ⏳ Não iniciado |
-| `ProjectDelivery` | ⏳ Não iniciado |
+| `reject()` e `pay()` no `Expense` | Domain | ⏳ A seguir |
 
 ---
 
@@ -178,22 +198,24 @@ Value Object imutável que representa o resultado do rateio de custo para um pro
 - **Testes escritos em inglês** (nomes de métodos e asserções)
 - **Um único motivo de falha por teste**
 - **`setUp()` do PHPUnit** — elimina repetição; propriedades de suporte também extraídas
-- **Helper methods privados nos testes** (ex: `utcDate()`)
 - **Mensagens de exceção em português**
 - **Commits atômicos e semânticos:** `feat`, `fix`, `test`, `refactor`, `docs`, `chore`, `style`
-- **`git commit --amend`** — corrige último commit antes do push
 - **Self-imports desnecessários removidos** — classes do mesmo namespace não precisam de `use`
 - **Getters com prefixo `get`**
 - **Parâmetros opcionais sempre no final** com `?Type $param = null`
 - **DRY em validações** — extraídas para métodos privados
 - **Comparação de VOs sempre via `equals()`** — nunca `===` entre objetos
+- **PHPStan nível 8** — zero erros obrigatório; arrays tipados com `@return array<Type>`
+- **`migrate:fresh`** em desenvolvimento quando há mudanças de schema
+- **`foreignUuid()`** para foreign keys UUID no Laravel + PostgreSQL
 
 ---
 
 ## 6. Próximos Passos de Engenharia
 
-1. **`IExpenseRepository`** — Interface de repositório na camada de Domain
-2. **Domain Events** — `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
+1. **`SpendManagementServiceProvider`** — registra o binding `IExpenseRepository → EloquentExpenseRepository` no IoC do Laravel
+2. **`reject()` e `pay()`** — completar a state machine do `Expense`
 3. **`CostDistributionCalculator`** — Domain Service com algoritmo de rateio e Penny Rounding Rule
-4. **README** — ✅ Adicionado
-5. **LICENSE** — ✅ CC BY-NC 4.0
+4. **HTTP Layer** — Controllers, Requests e Routes para expor os Use Cases via API REST
+5. **README** — ✅ Adicionado
+6. **LICENSE** — ✅ CC BY-NC 4.0

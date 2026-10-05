@@ -17,15 +17,15 @@
 
 | Conceito | Status | Notas |
 |---|---|---|
-| Value Objects | ✅ Estudado e aplicado | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt`, `CostDistribution` implementados |
-| Backed Enums | ✅ Estudado e aplicado | `ExpenseStatus`, `DistributionType` implementados |
-| Entities | ✅ Concluído | `ExpenseLine` implementada com getters, equals e métodos de alteração |
-| Aggregate Root | ✅ Concluído | `Expense` implementada com state machine e invariantes de domínio |
+| Value Objects | ✅ Concluído | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt`, `CostDistribution` |
+| Backed Enums | ✅ Concluído | `ExpenseStatus`, `DistributionType` |
+| Entities | ✅ Concluído | `ExpenseLine` com getters, equals e métodos de alteração |
+| Aggregate Root | ✅ Concluído | `Expense` com state machine, invariantes e Domain Events |
+| Domain Events | ✅ Concluído | `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid` |
+| Repositories | ✅ Concluído | `IExpenseRepository` (interface) + `EloquentExpenseRepository` (infra) |
+| Application Services / Use Cases | ✅ Concluído | `SubmitExpense`, `ApproveExpense` com Command + Handler |
 | Domain Services | 🔜 Próximo | `CostDistributionCalculator` — algoritmo de rateio com Penny Rounding Rule |
-| Domain Events | 🔜 Próximo | `ExpenseSubmitted`, `ExpenseApproved`, etc. |
-| Repositories | 🔜 Próximo | `IExpenseRepository` — Interface no Domain |
 | Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
-| Application Services / Use Cases | ⏳ Não iniciado | |
 | CQRS | ⏳ Não iniciado | |
 | Saga / Process Manager | ⏳ Não iniciado | |
 
@@ -34,131 +34,88 @@
 ## 3. Value Objects
 
 ### O que é
-Um Value Object é um objeto que representa um conceito do domínio definido apenas pelos seus **atributos** — não tem identidade própria. Dois Value Objects com os mesmos atributos são considerados iguais.
+Um Value Object representa um conceito do domínio definido apenas pelos seus **atributos** — não tem identidade própria.
 
 ### Características obrigatórias
-- **Imutável:** nunca muda após a criação. Operações retornam novas instâncias.
-- **Sem identidade:** não tem ID. A igualdade é definida pelos valores.
-- **Auto-validante:** o construtor garante que um VO inválido nunca existe.
-- **PHP puro no domínio:** sem dependências de framework.
-
-### Exemplos aplicados no ONGManager
-- `Money` — valor em centavos + moeda ISO 4217
-- `ExchangeRate` — taxa de conversão entre duas moedas em uma data UTC
-- `ProjectId` — wrapper de UUID para referência entre Bounded Contexts
-- `UserId` — wrapper de UUID para identificar usuários (submissor/aprovador)
-- `Receipt` — comprovante fiscal imutável com arquivo obrigatório e valor positivo
-- `CostDistribution` — resultado imutável do rateio para um projeto específico
+- **Imutável:** `final readonly` no PHP 8.2+
+- **Auto-validante:** construtor garante que VO inválido nunca existe
+- **PHP puro:** sem dependências de framework
+- **`equals()`:** comparação semântica por atributos
 
 ### Padrões aprendidos na prática
-- Usar `final readonly` no PHP 8.2+ para garantir imutabilidade pelo runtime
-- Armazenar valores monetários como `int` (centavos) — nunca `float`
-- Armazenar taxas de câmbio como `string` para usar `bcmath` sem perda de precisão
-- Datas em Value Objects devem ser `DateTimeImmutable` — e validadas como UTC (ADR-003)
-- Implementar `equals()` em todo Value Object para comparação semântica
-- Self-imports desnecessários: classes no mesmo namespace não precisam de `use`
-- Atributos opcionais: `?Type $param = null` — sempre no final do construtor
-- VOs que têm formato para exibição e formato para cálculo devem ter métodos separados (ex: `getProportionAsPercentage()` vs `getProportionInBasisPoints()`)
-
-### Decisão de design: VO genérico vs específico
-Quando um conceito pode ter múltiplos papéis dependendo do contexto, um VO genérico é preferível:
-```
-// ❌ Desnecessariamente específico
-SubmitterId, ApproverId — mas ambos são apenas UUIDs de usuários
-
-// ✅ Genérico e reutilizável
-UserId — o papel (submissor/aprovador) é definido pelo contexto de uso
-```
-
-### Basis Points — representação de proporções
-Para evitar erros de ponto flutuante em cálculos percentuais, proporções são armazenadas como inteiros em basis points:
-```
-10000 bps = 100%
-5000 bps  = 50%
-3333 bps  ≈ 33.33%
-1 bps     = 0.01%
-```
-Mesmo princípio do `Money` em centavos — valores fracionários representados como inteiros.
+- Valores monetários como `int` (centavos) — nunca `float`
+- Taxas de câmbio como `string` para `bcmath`
+- Datas como `DateTimeImmutable` validadas como UTC
+- Proporções como `int` em basis points (10000 = 100%)
+- Separar formato de exibição (`getProportionAsPercentage()`) do formato de cálculo (`getProportionInBasisPoints()`)
+- VO genérico vs específico: `UserId` em vez de `SubmitterId`/`ApproverId` — papel é contextual
 
 ---
 
 ## 4. Backed Enums
 
-### O que é
-Um Backed Enum é um Enum nativo do PHP 8.1+ onde cada caso tem um valor escalar associado (`string` ou `int`).
-
-### Enum puro vs Backed Enum
-
-| | Enum Puro | Backed Enum |
-|---|---|---|
-| Valor associado | ❌ Não tem | ✅ String ou int |
-| Persiste no banco | ❌ Precisa conversão manual | ✅ Direto via Eloquent cast |
-| Serializa em JSON | ❌ Problemático | ✅ Via `->value` |
-| Reconstrói do banco | ❌ Manual | ✅ `Enum::from('valor')` |
-
 ### Regra prática
-> Se o valor precisa **cruzar uma fronteira** (banco, API, evento, fila) → use **Backed Enum**.
+> Se o valor cruza uma fronteira (banco, API, evento, fila) → **Backed Enum**.
 
-### Padrões aprendidos na prática
+### Padrões
 - `Enum::from('valor')` — lança `\ValueError` se inválido
 - `Enum::tryFrom('valor')` — retorna `null` se inválido
-- Enums reutilizáveis entre contextos pertencem ao **Shared Kernel**
+- Enums reutilizáveis pertencem ao **Shared Kernel**
 
 ---
 
 ## 5. Entities
 
-### O que é
-Uma Entidade é um objeto que tem **identidade própria** — ela é rastreada ao longo do tempo mesmo que seus atributos mudem.
-
-### Características
-- Tem um **ID único e imutável** (geralmente UUID)
-- Pode **mudar de estado** ao longo do tempo
-- A igualdade é definida pelo ID, não pelos atributos
-- **Não usa `readonly`** — precisa poder alterar atributos
-
-### Diferença prática entre Entidade e Value Object
+### Diferença prática vs Value Object
 
 | | Value Object | Entidade |
 |---|---|---|
 | Identidade | Pelos valores | Pelo ID (UUID) |
-| Imutabilidade | Total (`final readonly`) | Parcial — estado pode mudar |
+| Imutabilidade | Total (`final readonly`) | Parcial |
 | Igualdade | `equals()` compara atributos | `equals()` compara IDs |
-| Exemplo no projeto | `Money(100, 'BRL')` | `ExpenseLine(uuid, projectId, amount)` |
 
-### Padrões aprendidos na prática
-- ID sempre validado no construtor via `Uuid::isValid()` + normalizado para lowercase
-- `equals()` compara `$this->id === $other->getId()` — nunca os atributos
-- Validações que dependem de contexto externo ficam no **Aggregate Root**
-- Value Objects ricos se auto-validam — a Entidade não precisa revalidar
-- Validações repetidas extraídas para métodos privados (`assertValidAmount()`) — DRY
+### Padrões
+- ID validado via `Uuid::isValid()` + normalizado para lowercase
+- Validações repetidas extraídas para métodos privados (DRY)
 - Métodos de alteração aplicam as mesmas invariantes do construtor
 
 ---
 
 ## 6. Aggregate Root
 
-### O que é
-Um Aggregate é um **cluster de entidades e value objects** tratado como uma única unidade para fins de consistência. O **Aggregate Root** é a entidade principal que controla o acesso a todo o cluster.
-
 ### Regras fundamentais
-- Objetos externos só podem referenciar o Aggregate Root — nunca entidades internas diretamente
-- Toda modificação dentro do aggregate passa pelo Root
+- Objetos externos só referenciam o Aggregate Root
+- Toda modificação passa pelo Root
 - O Root garante as **invariantes**
-- Um aggregate é a **fronteira de transação** — tudo dentro dele é salvo atomicamente
+- Fronteira de transação — salvo atomicamente
 
-### O Aggregate Root é responsável pela sua própria aprovação?
-**Sim.** No DDD, o Aggregate Root é o guardião de todas as suas invariantes — incluindo aprovação.
+### Padrão collect-and-publish para Domain Events
+```php
+// Dentro do Aggregate Root
+private array $domainEvents = [];
 
-### Invariantes implementadas no `Expense`
-- `id` deve ser UUID válido
-- `totalAmount` deve ser maior que zero
-- Moeda do `totalAmount` deve ser igual à moeda do `Receipt.documentValue`
-- `addLine()` só permitido em `DRAFT`
+private function recordEvent(object $event): void
+{
+    $this->domainEvents[] = $event;
+}
+
+/** @return array<object> */
+public function pullDomainEvents(): array
+{
+    $events = $this->domainEvents;
+    $this->domainEvents = [];
+    return $events;
+}
+```
+O aggregate acumula eventos internamente. O repositório ou Use Case os coleta via `pullDomainEvents()` e publica no broker.
+
+### Invariantes do `Expense`
+- UUID válido, `totalAmount > 0`, moeda do `totalAmount` == moeda do `Receipt`
+- `addLine()` só em `DRAFT`
 - `submit()` exige ao menos uma `ExpenseLine`
-- `approve()` — `approverId` ≠ `submitterId` (segregação de papéis)
+- `approve()` — `approverId` ≠ `submitterId`
 
-### State Machine do `Expense`
+### State Machine
 ```
 DRAFT → SUBMITTED → APPROVED → PAID
                  ↘ REJECTED
@@ -166,132 +123,163 @@ DRAFT → SUBMITTED → APPROVED → PAID
 
 ---
 
-## 7. Domain Services
+## 7. Domain Events
 
 ### O que é
-Um Domain Service executa **operações de domínio** que não pertencem naturalmente a nenhuma entidade ou Value Object específico. Ele contém lógica de negócio pura mas não tem identidade própria.
+Fato imutável que aconteceu no domínio. Nomeado sempre no **passado**. Carrega `occurredAt` em UTC.
 
-### Quando usar Domain Service
-Use quando a operação:
-- Envolve múltiplos aggregates ou VOs
-- É um processo/algoritmo complexo
-- Não pertence naturalmente a nenhuma entidade
-
-### Relação entre VO e Domain Service
-> **Domain Services enriquecem e produzem VOs** — o VO representa o *resultado*, o Service executa o *processo*.
-
+### Estrutura
+```php
+final readonly class ExpenseSubmitted
+{
+    public function __construct(
+        public string $expenseId,
+        public string $submitterId,
+        public DateTimeImmutable $occurredAt,
+    ) {}
+}
 ```
-CostDistributionCalculator (Domain Service)
-    ↓ recebe: Expense + ExchangeRates
-    ↓ executa: algoritmo de rateio + Penny Rounding Rule
-    ↓ produz: CostDistribution[] (VOs ricos e imutáveis)
-```
-
-O VO `CostDistribution` não sabe como foi calculado — ele só garante que seus dados são válidos. A complexidade está no serviço.
-
-### Próximo Domain Service a implementar
-- **`CostDistributionCalculator`** — recebe `Expense` + `ExchangeRate[]`, aplica a Penny Rounding Rule e retorna `CostDistribution[]`
+Atributos `public` — evento é só um container de dados, sem lógica.
 
 ---
 
-## 8. Domain Events
+## 8. Repositories
+
+### Interface no Domain (contrato)
+```php
+interface IExpenseRepository
+{
+    public function save(Expense $expense): void;
+    public function findById(string $id): ?Expense;
+    public function delete(Expense $expense): void;
+    /** @return array<Expense> */
+    public function findByStatus(ExpenseStatus $status): array;
+    /** @return array<Expense> */
+    public function findBySubmitter(UserId $id): array;
+}
+```
+
+### Implementação na Infrastructure (Eloquent)
+- `EloquentExpenseRepository` implementa `IExpenseRepository`
+- `toDomain()` reconstrói o aggregate a partir dos Models Eloquent
+- Relacionamentos UUID: usar `foreignUuid()` no Laravel + PostgreSQL
+
+---
+
+## 9. Application Layer — Use Cases
+
+### Estrutura Command + Handler
+```
+UseCases/
+└── SubmitExpense/
+    ├── SubmitExpenseCommand.php   ← DTO com dados da requisição
+    └── SubmitExpenseHandler.php   ← orquestração
+```
+
+### Fluxo do Handler
+```
+HTTP Request → Controller → Command → Handler
+                                        ↓
+                                  Repository.findById()
+                                        ↓
+                                  Expense.submit() ← regras no domínio
+                                        ↓
+                                  Repository.save()
+                                        ↓
+                                  pullDomainEvents() → TODO: broker
+```
+
+### Responsabilidade do Handler
+- **Não tem regras de negócio** — isso fica no domínio
+- Orquestra: busca → chama domínio → salva → publica eventos
+- Lança `RuntimeException` quando entidade não encontrada (não `InvalidArgumentException`)
+
+---
+
+## 10. Domain Services
 
 ### O que é
-Um Domain Event é um fato que aconteceu no domínio. É **imutável** e nomeado sempre no **passado**.
+Executa operações de domínio complexas que não pertencem naturalmente a nenhuma entidade ou VO.
 
-### Eventos mapeados no ONGManager — `SpendManagement`
-- `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid`
+### Relação VO ↔ Domain Service
+> **Domain Services produzem VOs** — o VO representa o *resultado*, o Service executa o *processo*.
 
----
-
-## 9. Bounded Contexts
-
-### Regras de comunicação (ADR-002)
-- Contextos **nunca** acessam classes internas de outros contextos diretamente
-- Comunicação via **Domain Events assíncronos** (RabbitMQ/Redis)
-- Referências entre contextos usam apenas **IDs**
-
-### Contextos mapeados no ONGManager
-- `SpendManagement`, `BudgetAllocation`, `FiscalCompliance`, `Fundraising`, `ProjectDelivery`
+### Próximo: `CostDistributionCalculator`
+Recebe `Expense` + `ExchangeRate[]`, aplica Penny Rounding Rule, retorna `CostDistribution[]`.
 
 ---
 
-## 10. Padrões de Design Aprendidos
+## 11. Infrastructure Layer
 
-### Static Factory Method vs Factory Pattern
+### Eloquent Models
+- Vivem em `Infrastructure/Models/` — nunca no Domain
+- UUID como primary key: `$keyType = 'string'` + `$incrementing = false`
+- Relacionamentos UUID: `foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete()`
 
-| | Static Factory Method | Factory Pattern |
-|---|---|---|
-| O que é | Método estático que cria instâncias | Classe dedicada à criação |
-| Quando usar | Criação simples, sem dependências | Criação complexa, com dependências |
-| Exemplo | `ProjectId::generate()` | `ExpenseFactory` |
-
-### Responsabilidade de validação por camada
-
-| Validação | Responsável |
-|---|---|
-| Formato de UUID | Entidade / VO no construtor |
-| Valor monetário positivo | Entidade / VO no construtor |
-| Moeda Receipt == moeda totalAmount | Aggregate Root (`Expense` construtor) |
-| Arquivo existe no disco | Infrastructure |
-| Moeda base compatível com ExchangeRate | Aggregate Root (`Expense.addLine()`) |
-| Algoritmo de rateio com Penny Rounding | Domain Service (`CostDistributionCalculator`) |
-| Projeto existe e está ativo | Application Layer via `IProjectValidator` |
-
-### setUp() no PHPUnit
-Executado **antes de cada teste** — instância sempre fresca. Propriedades de suporte (ex: `$projectId`, `$receipt`) também extraídas para a classe do teste.
+### Migrations
+- `timestampTz` para datas com timezone (ADR-003)
+- `migrate:fresh` em desenvolvimento quando há mudanças de schema
+- Em produção: apenas `migrate` — nunca `fresh`
 
 ---
 
-## 11. Git — Boas Práticas
+## 12. PHPStan
 
-### Commits semânticos
+### Configuração
+- Nível 8 com Larastan — zero erros obrigatório
+- Arrays tipados via PHPDoc: `/** @return array<Expense> */`
+- Proporções com basis points: `/** @param 1|2|3|4 $roundingMode */`
+- Erros de generics do Eloquent: suprimir via `ignoreErrors` com `identifier` + `path`
+
+---
+
+## 13. Git — Boas Práticas
+
 | Prefixo | Quando usar |
 |---|---|
 | `feat` | Nova funcionalidade |
 | `fix` | Correção de bug |
-| `test` | Adição ou correção de testes |
+| `test` | Testes |
 | `refactor` | Reestruturação sem mudar comportamento |
-| `style` | Formatação, imports, espaços |
+| `style` | Formatação, imports |
 | `docs` | Documentação |
-| `chore` | Manutenção sem tocar código da aplicação |
-
-### Corrigir commit antes do push
-```bash
-git commit --amend -m "mensagem corrigida"
-```
-Após o push, não usar `force push` em branches compartilhadas.
+| `chore` | Manutenção |
 
 ---
 
-## 12. Dúvidas e Descobertas
+## 14. Dúvidas e Descobertas
 
 | # | Dúvida / Descoberta | Status |
 |---|---|---|
-| 1 | Valores negativos em `Money` são válidos? | ✅ Sim — representam estornos contábeis |
-| 2 | Por que armazenar taxa de câmbio como `string`? | ✅ `bcmath` sem perda de precisão |
-| 3 | Por que `DateTimeImmutable` e não `DateTime`? | ✅ `DateTime` é mutável |
+| 1 | Valores negativos em `Money` são válidos? | ✅ Sim — estornos contábeis |
+| 2 | Por que taxa de câmbio como `string`? | ✅ `bcmath` sem perda de precisão |
+| 3 | Por que `DateTimeImmutable`? | ✅ `DateTime` é mutável |
 | 4 | `ExpenseLine` é entidade ou VO? | ✅ Entidade — tem identidade própria |
 | 5 | Como contextos se comunicam sem acoplamento? | ✅ Domain Events + referência por ID |
-| 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — é static factory method |
-| 7 | Enum puro ou Backed Enum para estados? | ✅ Backed Enum quando cruza fronteiras |
-| 8 | Validar se arquivo existe no domínio? | ✅ Não — filesystem é infraestrutura |
-| 9 | `ExpenseLine` valida compatibilidade de moedas? | ✅ Não — responsabilidade da `Expense` |
-| 10 | `?Type` sem `= null` torna o parâmetro opcional? | ✅ Não — `= null` é obrigatório |
-| 11 | Validação repetida no construtor e método de alteração? | ✅ Extrair para método privado (DRY) |
-| 12 | `setUp()` compartilha estado entre testes? | ✅ Não — executado antes de cada teste |
-| 13 | `SubmitterId` e `ApproverId` separados ou `UserId` genérico? | ✅ `UserId` genérico — papel é contextual |
-| 14 | `Expense` deve receber `status` no construtor? | ✅ Não — sempre inicia em `DRAFT` internamente |
-| 15 | `ExpenseLine` é obrigatória na criação da `Expense`? | ✅ Não — adicionada via `addLine()` após criação |
-| 16 | A `Expense` é responsável pela sua própria aprovação? | ✅ Sim — Aggregate Root é guardião de todas as invariantes |
-| 17 | Comparar dois `UserId` com `===`? | ✅ Não — usar `equals()` |
+| 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — static factory method |
+| 7 | Enum puro ou Backed Enum? | ✅ Backed quando cruza fronteiras |
+| 8 | Validar arquivo no domínio? | ✅ Não — filesystem é infraestrutura |
+| 9 | `ExpenseLine` valida moedas? | ✅ Não — responsabilidade da `Expense` |
+| 10 | `?Type` sem `= null` é opcional? | ✅ Não — `= null` é obrigatório |
+| 11 | Validação repetida no construtor? | ✅ Extrair para método privado (DRY) |
+| 12 | `setUp()` compartilha estado? | ✅ Não — executado antes de cada teste |
+| 13 | `SubmitterId` e `ApproverId` separados? | ✅ `UserId` genérico — papel é contextual |
+| 14 | `Expense` recebe `status` no construtor? | ✅ Não — sempre `DRAFT` internamente |
+| 15 | `ExpenseLine` obrigatória na criação? | ✅ Não — adicionada via `addLine()` |
+| 16 | `Expense` aprova a si mesma? | ✅ Sim — Aggregate Root é guardião de invariantes |
+| 17 | Comparar `UserId` com `===`? | ✅ Não — usar `equals()` |
 | 18 | Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` no construtor |
-| 19 | `CostDistribution` é o VO mais complexo do contexto? | ✅ O VO em si é simples — a complexidade está no `CostDistributionCalculator` (Domain Service) que o produz |
-| 20 | Quem enriquece os VOs? | ✅ Os Domain Services — eles executam operações complexas e **produzem** VOs ricos como resultado |
+| 19 | `CostDistribution` é o VO mais complexo? | ✅ O VO é simples — complexidade está no Domain Service |
+| 20 | Quem enriquece os VOs? | ✅ Domain Services — produzem VOs como resultado |
+| 21 | `allFindAll()` no repositório? | ✅ Evitar — usar métodos específicos (`findByStatus`, `findBySubmitter`) por performance |
+| 22 | `delete` no repositório de auditoria? | ✅ Só despesas em `DRAFT` — validação no domínio, não no repositório |
+| 23 | `RuntimeException` vs `InvalidArgumentException` no Handler? | ✅ `RuntimeException` para entidade não encontrada — argumento é válido, entidade é que não existe |
+| 24 | `foreignUuid()` vs `foreign()` no Laravel? | ✅ `foreignUuid()` cria coluna + constraint UUID compatível com PostgreSQL |
+| 25 | `migrate:fresh` vs `migrate`? | ✅ `fresh` em dev (recria tudo), `migrate` em produção (só novas) |
 
 ---
 
-## 13. Referências e Leituras
+## 15. Referências e Leituras
 
 - **Livro base:** *Domain-Driven Design* — Eric Evans (Livro Azul)
 - **Livro prático:** *Implementing Domain-Driven Design* — Vaughn Vernon (Livro Vermelho)
