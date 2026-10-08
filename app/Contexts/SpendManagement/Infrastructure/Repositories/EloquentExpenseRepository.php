@@ -49,7 +49,7 @@ class EloquentExpenseRepository implements IExpenseRepository
     {
         return ExpenseModel::where('status', $status->value)
             ->get()
-            ->map(fn ($model) => $this->toDomain($model))
+            ->map(fn($model) => $this->toDomain($model))
             ->toArray();
     }
 
@@ -58,7 +58,7 @@ class EloquentExpenseRepository implements IExpenseRepository
     {
         return ExpenseModel::where('submitter_id', $id->toString())
             ->get()
-            ->map(fn ($model) => $this->toDomain($model))
+            ->map(fn($model) => $this->toDomain($model))
             ->toArray();
     }
 
@@ -67,7 +67,7 @@ class EloquentExpenseRepository implements IExpenseRepository
         $receipt = $model->receipt;
 
         if (! $receipt) {
-            throw new \RuntimeException('Expense sem receipt: '.$model->id);
+            throw new \RuntimeException('Expense sem receipt: ' . $model->id);
         }
 
         $domainReceipt = new Receipt(
