@@ -9,6 +9,8 @@ use App\Contexts\Shared\Domain\ValueObjects\Money;
 use App\Contexts\Shared\Domain\ValueObjects\Receipt;
 use App\Contexts\Shared\Domain\ValueObjects\UserId;
 use App\Contexts\SpendManagement\Domain\Events\ExpenseApproved;
+use App\Contexts\SpendManagement\Domain\Events\ExpensePaid;
+use App\Contexts\SpendManagement\Domain\Events\ExpenseRejected;
 use App\Contexts\SpendManagement\Domain\Events\ExpenseSubmitted;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -140,7 +142,49 @@ class Expense
         $this->recordEvent(new ExpenseApproved(
             $this->id,
             $approverId->toString(),
-            new DateTimeImmutable('now', new DateTimeZone('UTC'))
+            new DateTimeImmutable('now', new DateTimeZone('UTC')),
+        ));
+    }
+
+    public function reject(UserId $approverId, string $reason): void
+    {
+        if ($this->status !== ExpenseStatus::SUBMITTED) {
+            throw new InvalidArgumentException('Apenas despesas submetidas podem ser rejeitadas.');
+        }
+
+        if (empty(trim($reason))) {
+            throw new InvalidArgumentException('O motivo da rejeição é obrigatório.');
+        }
+
+        if ($this->submitterId->equals($approverId)) {
+            throw new InvalidArgumentException('O reprovador não pode ser o mesmo usuário que submeteu a despesa.');
+        }
+
+        $this->status = ExpenseStatus::REJECTED;
+
+        $this->recordEvent(new ExpenseRejected(
+            $this->id,
+            $approverId->toString(),
+            $reason,
+            new DateTimeImmutable('now', new DateTimeZone('UTC')),
+        ));
+    }
+
+    public function pay(UserId $payerId): void
+    {
+        if ($this->status !== ExpenseStatus::APPROVED) {
+            throw new InvalidArgumentException('Apenas despesas aprovadas podem ser pagas.');
+        }
+
+        if ($this->submitterId->equals($payerId)) {
+            throw new InvalidArgumentException('O pagador não pode ser o mesmo usuário que submeteu a despesa.');
+        }
+
+        $this->status = ExpenseStatus::PAID;
+
+        $this->recordEvent(new ExpensePaid(
+            $this->id,
+            new DateTimeImmutable('now', new DateTimeZone('UTC')),
         ));
     }
 }
