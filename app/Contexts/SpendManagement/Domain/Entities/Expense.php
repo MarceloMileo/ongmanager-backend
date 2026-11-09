@@ -187,4 +187,20 @@ class Expense
             new DateTimeImmutable('now', new DateTimeZone('UTC')),
         ));
     }
+
+    /** @param array<ExpenseLine> $lines */
+    public static function reconstitute(
+        string $id,
+        Receipt $receipt,
+        Money $totalAmount,
+        UserId $submitterId,
+        ExpenseStatus $status,
+        array $lines = [],
+    ): self {
+        $expense = new self($id, $receipt, $totalAmount, $submitterId);
+        $expense->status = $status;
+        $expense->lines = $lines;
+
+        return $expense;
+    }
 }

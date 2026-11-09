@@ -23,6 +23,8 @@ class ExpenseLine
 
     private DistributionType $distributionType;
 
+    private string $description;
+
     private function assertValidAmount(Money $amount): void
     {
         if ($amount->getAmountInCents() <= 0) {
@@ -32,10 +34,11 @@ class ExpenseLine
 
     public function __construct(
         string $id,
+        string $description,
         ProjectId $projectId,
         Money $amount,
         DistributionType $distributionType,
-        ?ExchangeRate $exchangeRate = null
+        ?ExchangeRate $exchangeRate = null,
     ) {
         if (! Uuid::isValid($id)) {
             throw new InvalidArgumentException(sprintf('O valor "%s" não é um UUID válido.', $id));
@@ -48,6 +51,7 @@ class ExpenseLine
         $this->amount = $amount;
         $this->distributionType = $distributionType;
         $this->exchangeRate = $exchangeRate;
+        $this->description = $description;
     }
 
     public function getId(): string
@@ -94,5 +98,10 @@ class ExpenseLine
     public function changeExchangeRate(?ExchangeRate $exchangeRate): void
     {
         $this->exchangeRate = $exchangeRate;
+    }
+
+    public function getDescription(): string
+    {
+        return $this->description;
     }
 }

@@ -19,7 +19,7 @@ final readonly class ApproveExpenseHandler
         $expense = $this->repository->findById($command->expenseId);
 
         if (! $expense) {
-            throw new RuntimeException('Despensa não encontrada: '.$command->expenseId);
+            throw new RuntimeException('Despesa não encontrada: '.$command->expenseId);
         }
 
         $expense->approve(new UserId($command->approverId));

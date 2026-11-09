@@ -1,287 +1,334 @@
-# DDD Study Notes — Domain-Driven Design
+# DDD Study Notes — ONGManager
 
-> **Objetivo:** Consolidar o aprendizado teórico e prático de Domain-Driven Design, registrando conceitos, dúvidas, descobertas e referências à medida que o estudo avança. Este arquivo serve como restore point para sessões de estudo com IA.
-
----
-
-## 1. Contexto do Estudante
-
-- **Experiência atual:** ~7 anos de PHP, ambiente sem boas práticas (sem CI/CD, sem gitflow estruturado)
-- **Objetivo:** Tornar-se engenheiro de software sênior, com domínio real de arquitetura e DDD
-- **Projeto de referência prática:** ONGManager (`ongmanager-backend`) — SaaS B2B para gestão de ONGs em Laravel 13 (PHP 8.3)
-- **Stack do projeto prático:** Laravel 13, PHP 8.3, PostgreSQL 16, Redis, RabbitMQ, Docker/DevContainers, Terraform
+> Registro prático de conceitos DDD aprendidos e aplicados durante o desenvolvimento do ONGManager.
+> Cada seção parte do conceito teórico e mapeia diretamente para o código do projeto.
 
 ---
 
-## 2. Conceitos Fundamentais — Mapa de Progresso
+## 1. Aggregate Root
 
-| Conceito | Status | Notas |
-|---|---|---|
-| Value Objects | ✅ Concluído | `Money`, `ExchangeRate`, `ProjectId`, `UserId`, `Receipt`, `CostDistribution` |
-| Backed Enums | ✅ Concluído | `ExpenseStatus`, `DistributionType` |
-| Entities | ✅ Concluído | `ExpenseLine` com getters, equals e métodos de alteração |
-| Aggregate Root | ✅ Concluído | `Expense` com state machine, invariantes e Domain Events |
-| Domain Events | ✅ Concluído | `ExpenseSubmitted`, `ExpenseApproved`, `ExpenseRejected`, `ExpensePaid` |
-| Repositories | ✅ Concluído | `IExpenseRepository` (interface) + `EloquentExpenseRepository` (infra) |
-| Application Services / Use Cases | ✅ Concluído | `SubmitExpense`, `ApproveExpense` com Command + Handler |
-| Domain Services | 🔜 Próximo | `CostDistributionCalculator` — algoritmo de rateio com Penny Rounding Rule |
-| Bounded Contexts | 🔄 Em andamento | Separação `SpendManagement` → `ProjectDelivery` via `ProjectId` aplicada |
-| CQRS | ⏳ Não iniciado | |
-| Saga / Process Manager | ⏳ Não iniciado | |
+**Teoria:**
+O Aggregate Root é a porta de entrada para um conjunto de objetos relacionados (o Aggregate). Nenhum objeto externo pode referenciar ou modificar entidades internas do aggregate diretamente — tudo passa pelo Aggregate Root. Ele garante a consistência transacional do grupo como um todo.
 
----
+**No ONGManager:**
+`Expense` é o Aggregate Root do contexto `SpendManagement`. Ele controla `ExpenseLine` (entidade interna) e `Receipt` (Value Object). Nenhuma camada externa acessa `ExpenseLine` diretamente — apenas via métodos públicos do `Expense`.
 
-## 3. Value Objects
-
-### O que é
-Um Value Object representa um conceito do domínio definido apenas pelos seus **atributos** — não tem identidade própria.
-
-### Características obrigatórias
-- **Imutável:** `final readonly` no PHP 8.2+
-- **Auto-validante:** construtor garante que VO inválido nunca existe
-- **PHP puro:** sem dependências de framework
-- **`equals()`:** comparação semântica por atributos
-
-### Padrões aprendidos na prática
-- Valores monetários como `int` (centavos) — nunca `float`
-- Taxas de câmbio como `string` para `bcmath`
-- Datas como `DateTimeImmutable` validadas como UTC
-- Proporções como `int` em basis points (10000 = 100%)
-- Separar formato de exibição (`getProportionAsPercentage()`) do formato de cálculo (`getProportionInBasisPoints()`)
-- VO genérico vs específico: `UserId` em vez de `SubmitterId`/`ApproverId` — papel é contextual
-
----
-
-## 4. Backed Enums
-
-### Regra prática
-> Se o valor cruza uma fronteira (banco, API, evento, fila) → **Backed Enum**.
-
-### Padrões
-- `Enum::from('valor')` — lança `\ValueError` se inválido
-- `Enum::tryFrom('valor')` — retorna `null` se inválido
-- Enums reutilizáveis pertencem ao **Shared Kernel**
-
----
-
-## 5. Entities
-
-### Diferença prática vs Value Object
-
-| | Value Object | Entidade |
-|---|---|---|
-| Identidade | Pelos valores | Pelo ID (UUID) |
-| Imutabilidade | Total (`final readonly`) | Parcial |
-| Igualdade | `equals()` compara atributos | `equals()` compara IDs |
-
-### Padrões
-- ID validado via `Uuid::isValid()` + normalizado para lowercase
-- Validações repetidas extraídas para métodos privados (DRY)
-- Métodos de alteração aplicam as mesmas invariantes do construtor
-
----
-
-## 6. Aggregate Root
-
-### Regras fundamentais
-- Objetos externos só referenciam o Aggregate Root
-- Toda modificação passa pelo Root
-- O Root garante as **invariantes**
-- Fronteira de transação — salvo atomicamente
-
-### Padrão collect-and-publish para Domain Events
 ```php
-// Dentro do Aggregate Root
+// ✅ Correto — via Aggregate Root
+$expense->addLine($line);
+
+// ❌ Errado — acesso direto à entidade interna
+$expense->lines[] = $line;
+```
+
+---
+
+## 2. Value Object (VO)
+
+**Teoria:**
+Value Objects não têm identidade própria — são definidos pelo valor dos seus atributos. São imutáveis: qualquer "modificação" cria um novo VO. Devem ser comparados via `equals()`, nunca via referência (`===`).
+
+**No ONGManager:**
+`Money`, `Receipt`, `ExchangeRate`, `ProjectId`, `UserId`, `CostDistribution` são todos VOs.
+
+```php
+// ✅ Comparação correta de VOs
+$money1->equals($money2);
+
+// ❌ Nunca use ===
+$money1 === $money2; // false mesmo com mesmos valores
+```
+
+**Regras de validação ficam no construtor:**
+```php
+final readonly class Money {
+    public function __construct(int $amountInCents, string $currency) {
+        if ($amountInCents < 0) {
+            throw new InvalidArgumentException('Money não pode ser negativo.');
+        }
+        // ...
+    }
+}
+```
+
+---
+
+## 3. Domain Events
+
+**Teoria:**
+Domain Events registram que algo significativo aconteceu no domínio. São fatos imutáveis no passado. Permitem comunicação entre Bounded Contexts sem acoplamento direto.
+
+**Padrão Collect-and-Publish (usado no ONGManager):**
+O Aggregate Root acumula eventos em uma lista privada (`recordEvent`). A Application Layer coleta (`pullDomainEvents`) após salvar e publica. Isso garante que os eventos só são disparados após a persistência bem-sucedida.
+
+```php
+// Domain Layer — Expense.php
 private array $domainEvents = [];
 
-private function recordEvent(object $event): void
-{
+private function recordEvent(object $event): void {
     $this->domainEvents[] = $event;
 }
 
-/** @return array<object> */
-public function pullDomainEvents(): array
-{
+public function pullDomainEvents(): array {
     $events = $this->domainEvents;
     $this->domainEvents = [];
     return $events;
 }
+
+// Domain Layer — dentro de approve()
+$this->recordEvent(new ExpenseApproved(
+    $this->id,
+    $approverId->toString(),
+    new DateTimeImmutable('now', new DateTimeZone('UTC')),
+));
+
+// Application Layer — ApproveExpenseHandler.php
+$expense->approve(new UserId($command->approverId));
+$this->repository->save($expense);
+$domainEvents = $expense->pullDomainEvents();
+// TODO: publicar no message broker (RabbitMQ)
 ```
-O aggregate acumula eventos internamente. O repositório ou Use Case os coleta via `pullDomainEvents()` e publica no broker.
 
-### Invariantes do `Expense`
-- UUID válido, `totalAmount > 0`, moeda do `totalAmount` == moeda do `Receipt`
-- `addLine()` só em `DRAFT`
-- `submit()` exige ao menos uma `ExpenseLine`
-- `approve()` — `approverId` ≠ `submitterId`
+**Domain Events criados:**
+- `ExpenseSubmitted` — `expenseId`, `submitterId`, `occurredAt`
+- `ExpenseApproved` — `expenseId`, `approverId`, `occurredAt`
+- `ExpenseRejected` — `expenseId`, `approverId`, `reason`, `occurredAt`
+- `ExpensePaid` — `expenseId`, `occurredAt`
 
-### State Machine
+---
+
+## 4. Repository Pattern
+
+**Teoria:**
+O Repository abstrai o mecanismo de persistência. O Domain conhece apenas a interface (`IExpenseRepository`). A Infrastructure fornece a implementação concreta (`EloquentExpenseRepository`). Isso garante que o Domain seja independente de frameworks e bancos de dados.
+
+**No ONGManager:**
+```php
+// Domain Layer — só conhece a interface
+interface IExpenseRepository {
+    public function save(Expense $expense): void;
+    public function findById(string $id): ?Expense;
+}
+
+// Infrastructure Layer — implementa com Eloquent
+class EloquentExpenseRepository implements IExpenseRepository {
+    public function save(Expense $expense): void {
+        ExpenseModel::updateOrCreate(['id' => $expense->getId()], [...]);
+        ReceiptModel::updateOrCreate(['expense_id' => $expense->getId()], [...]);
+    }
+
+    public function findById(string $id): ?Expense {
+        $model = ExpenseModel::with('receipt')->find($id);
+        if (!$model) return null;
+        return $this->toDomain($model); // reconstrói o Aggregate
+    }
+}
+```
+
+---
+
+## 5. Use Cases — Command + Handler Pattern
+
+**Teoria:**
+Cada Use Case é representado por:
+- **Command** — DTO imutável com primitivos (`string`, `int`, `bool`). Nunca contém objetos de domínio.
+- **Handler** — recebe o Command, constrói os VOs/Entidades, orquestra a lógica.
+
+**Por que Commands usam apenas primitivos?**
+Commands chegam da HTTP Layer (controller, queue, CLI). A conversão de primitivos → VOs é responsabilidade do Handler, que está na Application Layer e pode importar o Domain. Se o Command importasse VOs, violaria a separação de camadas.
+
+```php
+// ✅ Correto — Command com primitivos
+final readonly class CreateExpenseCommand {
+    public function __construct(
+        public string $fileReference,
+        public int $documentValueCents,
+        public string $documentValueCurrency,
+        public string $submitterId,
+        // ...
+    ) {}
+}
+
+// ❌ Errado — Command com objetos de domínio
+final readonly class CreateExpenseCommand {
+    public function __construct(
+        public Receipt $receipt,    // ❌ VO de domínio no DTO
+        public UserId $submitterId, // ❌ VO de domínio no DTO
+    ) {}
+}
+```
+
+**Handler constrói os VOs:**
+```php
+class CreateExpenseHandler {
+    public function handle(CreateExpenseCommand $command): void {
+        $receipt = new Receipt(
+            $command->fileReference,
+            new Money($command->documentValueCents, $command->documentValueCurrency),
+        );
+        $expense = new Expense(
+            Uuid::uuid4()->toString(),
+            $receipt,
+            new Money($command->totalAmountCents, $command->totalAmountCurrency),
+            new UserId($command->submitterId),
+        );
+        $this->repository->save($expense);
+    }
+}
+```
+
+---
+
+## 6. State Machine no Aggregate Root
+
+**Teoria:**
+O Aggregate Root é o guardião das transições de estado. Cada transição valida pré-condições, aplica a mudança e registra o evento de domínio correspondente.
+
+**State Machine do `Expense`:**
 ```
 DRAFT → SUBMITTED → APPROVED → PAID
                  ↘ REJECTED
 ```
 
----
+**Invariantes implementadas:**
+- `addLine()` — só em `DRAFT`
+- `submit()` — só em `DRAFT`, exige ao menos uma `ExpenseLine`
+- `approve()` / `reject()` — só em `SUBMITTED`, `approverId` ≠ `submitterId`
+- `reject()` — exige `reason` não vazio
+- `pay()` — só em `APPROVED`, `payerId` ≠ `submitterId`
 
-## 7. Domain Events
-
-### O que é
-Fato imutável que aconteceu no domínio. Nomeado sempre no **passado**. Carrega `occurredAt` em UTC.
-
-### Estrutura
 ```php
-final readonly class ExpenseSubmitted
-{
-    public function __construct(
-        public string $expenseId,
-        public string $submitterId,
-        public DateTimeImmutable $occurredAt,
-    ) {}
-}
-```
-Atributos `public` — evento é só um container de dados, sem lógica.
-
----
-
-## 8. Repositories
-
-### Interface no Domain (contrato)
-```php
-interface IExpenseRepository
-{
-    public function save(Expense $expense): void;
-    public function findById(string $id): ?Expense;
-    public function delete(Expense $expense): void;
-    /** @return array<Expense> */
-    public function findByStatus(ExpenseStatus $status): array;
-    /** @return array<Expense> */
-    public function findBySubmitter(UserId $id): array;
+public function approve(UserId $approverId): void {
+    if ($this->status !== ExpenseStatus::SUBMITTED) {
+        throw new InvalidArgumentException('Apenas despesas submetidas podem ser aprovadas.');
+    }
+    if ($this->submitterId->equals($approverId)) {
+        throw new InvalidArgumentException('O aprovador não pode ser o mesmo usuário que submeteu a despesa.');
+    }
+    $this->status = ExpenseStatus::APPROVED;
+    $this->recordEvent(new ExpenseApproved(...));
 }
 ```
 
-### Implementação na Infrastructure (Eloquent)
-- `EloquentExpenseRepository` implementa `IExpenseRepository`
-- `toDomain()` reconstrói o aggregate a partir dos Models Eloquent
-- Relacionamentos UUID: usar `foreignUuid()` no Laravel + PostgreSQL
-
 ---
 
-## 9. Application Layer — Use Cases
+## 7. IoC — Inversão de Controle
 
-### Estrutura Command + Handler
-```
-UseCases/
-└── SubmitExpense/
-    ├── SubmitExpenseCommand.php   ← DTO com dados da requisição
-    └── SubmitExpenseHandler.php   ← orquestração
-```
+**Teoria:**
+IoC é o princípio pelo qual o controle da criação de dependências é invertido: em vez de uma classe criar suas dependências, alguém externo as fornece (geralmente um container). No Laravel, o Service Container é o IoC container.
 
-### Fluxo do Handler
-```
-HTTP Request → Controller → Command → Handler
-                                        ↓
-                                  Repository.findById()
-                                        ↓
-                                  Expense.submit() ← regras no domínio
-                                        ↓
-                                  Repository.save()
-                                        ↓
-                                  pullDomainEvents() → TODO: broker
+**Binding no ONGManager:**
+```php
+// SpendManagementServiceProvider.php
+public function register(): void {
+    $this->app->bind(
+        IExpenseRepository::class,       // Interface (contrato)
+        EloquentExpenseRepository::class, // Implementação concreta
+    );
+}
 ```
 
-### Responsabilidade do Handler
-- **Não tem regras de negócio** — isso fica no domínio
-- Orquestra: busca → chama domínio → salva → publica eventos
-- Lança `RuntimeException` quando entidade não encontrada (não `InvalidArgumentException`)
+**Resultado:** quando o Laravel precisa resolver `IExpenseRepository` (no Handler, por exemplo), ele entrega `EloquentExpenseRepository` automaticamente. O Domain nunca sabe qual implementação está sendo usada.
+
+**Validação via tinker:**
+```php
+app(IExpenseRepository::class)::class
+// => "App\Contexts\SpendManagement\Infrastructure\Repositories\EloquentExpenseRepository"
+```
 
 ---
 
-## 10. Domain Services
+## 8. Bounded Context
 
-### O que é
-Executa operações de domínio complexas que não pertencem naturalmente a nenhuma entidade ou VO.
+**Teoria:**
+Bounded Context é uma fronteira explícita dentro da qual um modelo de domínio é aplicável. O mesmo conceito pode ter significados diferentes em contextos diferentes. Contextos se comunicam via eventos ou Anti-Corruption Layers.
 
-### Relação VO ↔ Domain Service
-> **Domain Services produzem VOs** — o VO representa o *resultado*, o Service executa o *processo*.
+**No ONGManager:**
+Cada contexto tem sua própria pasta em `app/Contexts/`:
+- `SpendManagement` — gestão de despesas
+- `BudgetAllocation` — execução orçamentária
+- `FiscalCompliance` — auditoria fiscal
+- `Fundraising` — captação e doações
+- `ProjectDelivery` — operações e beneficiários
 
-### Próximo: `CostDistributionCalculator`
-Recebe `Expense` + `ExchangeRate[]`, aplica Penny Rounding Rule, retorna `CostDistribution[]`.
-
----
-
-## 11. Infrastructure Layer
-
-### Eloquent Models
-- Vivem em `Infrastructure/Models/` — nunca no Domain
-- UUID como primary key: `$keyType = 'string'` + `$incrementing = false`
-- Relacionamentos UUID: `foreignUuid('expense_id')->constrained('expenses')->cascadeOnDelete()`
-
-### Migrations
-- `timestampTz` para datas com timezone (ADR-003)
-- `migrate:fresh` em desenvolvimento quando há mudanças de schema
-- Em produção: apenas `migrate` — nunca `fresh`
+**Shared Kernel:**
+`app/Contexts/Shared/` contém VOs e conceitos compartilhados entre contextos: `Money`, `UserId`, `ProjectId`, `ExchangeRate`.
 
 ---
 
-## 12. PHPStan
+## 9. Separação de Papéis (Segregation of Duties)
 
-### Configuração
-- Nível 8 com Larastan — zero erros obrigatório
-- Arrays tipados via PHPDoc: `/** @return array<Expense> */`
-- Proporções com basis points: `/** @param 1|2|3|4 $roundingMode */`
-- Erros de generics do Eloquent: suprimir via `ignoreErrors` com `identifier` + `path`
+**Teoria:**
+Nenhuma pessoa deve ter controle completo sobre uma transação financeira. O submissor não pode aprovar/rejeitar a própria despesa, e o pagador não pode ser quem submeteu.
+
+**Invariantes no Expense:**
+```php
+// approve() e reject()
+if ($this->submitterId->equals($approverId)) {
+    throw new InvalidArgumentException('O aprovador não pode ser o mesmo que submeteu.');
+}
+
+// pay()
+if ($this->submitterId->equals($payerId)) {
+    throw new InvalidArgumentException('O pagador não pode ser o mesmo que submeteu.');
+}
+```
 
 ---
 
-## 13. Git — Boas Práticas
+## 10. Penny Rounding Rule (Próxima implementação)
 
-| Prefixo | Quando usar |
+**Teoria:**
+Ao distribuir um valor entre N projetos com proporções percentuais, os centavos residuais da divisão inteira devem ser distribuídos um a um até que a soma das partes seja exatamente igual ao total. O algoritmo de Fowler (usado em `Money.allocate()`) garante isso.
+
+**Exemplo:**
+- Total: R$ 10,00 (1000 centavos)
+- 3 projetos com 33.33% cada
+- 1000 / 3 = 333 com resto 1
+- Distribuição: 334 + 333 + 333 = 1000 ✅
+
+**No ONGManager:** `CostDistributionCalculator` (próximo Domain Service a implementar) usará `Money.allocate()` para garantir que a soma das distribuições seja sempre igual ao `totalAmount` da `Expense`.
+
+---
+
+## 11. HTTP Layer — Controller sem lógica
+
+**Teoria:**
+Controllers na HTTP Layer são responsáveis apenas por:
+1. Extrair dados do Request
+2. Construir o Command
+3. Chamar o Handler
+4. Retornar a Response
+
+Toda lógica de negócio fica no Domain. Toda orquestração fica no Handler.
+
+```php
+public function store(Request $request, CreateExpenseHandler $handler): JsonResponse {
+    $handler->handle(new CreateExpenseCommand(
+        fileReference: $request->input('file_reference'),
+        documentValueCents: $request->integer('document_value_cents'),
+        // ...
+    ));
+    return response()->json(['message' => 'Despesa criada com sucesso.'], 201);
+}
+```
+
+---
+
+## Glossário Rápido
+
+| Termo | Definição |
 |---|---|
-| `feat` | Nova funcionalidade |
-| `fix` | Correção de bug |
-| `test` | Testes |
-| `refactor` | Reestruturação sem mudar comportamento |
-| `style` | Formatação, imports |
-| `docs` | Documentação |
-| `chore` | Manutenção |
-
----
-
-## 14. Dúvidas e Descobertas
-
-| # | Dúvida / Descoberta | Status |
-|---|---|---|
-| 1 | Valores negativos em `Money` são válidos? | ✅ Sim — estornos contábeis |
-| 2 | Por que taxa de câmbio como `string`? | ✅ `bcmath` sem perda de precisão |
-| 3 | Por que `DateTimeImmutable`? | ✅ `DateTime` é mutável |
-| 4 | `ExpenseLine` é entidade ou VO? | ✅ Entidade — tem identidade própria |
-| 5 | Como contextos se comunicam sem acoplamento? | ✅ Domain Events + referência por ID |
-| 6 | `ProjectId::generate()` é Factory Pattern? | ✅ Não — static factory method |
-| 7 | Enum puro ou Backed Enum? | ✅ Backed quando cruza fronteiras |
-| 8 | Validar arquivo no domínio? | ✅ Não — filesystem é infraestrutura |
-| 9 | `ExpenseLine` valida moedas? | ✅ Não — responsabilidade da `Expense` |
-| 10 | `?Type` sem `= null` é opcional? | ✅ Não — `= null` é obrigatório |
-| 11 | Validação repetida no construtor? | ✅ Extrair para método privado (DRY) |
-| 12 | `setUp()` compartilha estado? | ✅ Não — executado antes de cada teste |
-| 13 | `SubmitterId` e `ApproverId` separados? | ✅ `UserId` genérico — papel é contextual |
-| 14 | `Expense` recebe `status` no construtor? | ✅ Não — sempre `DRAFT` internamente |
-| 15 | `ExpenseLine` obrigatória na criação? | ✅ Não — adicionada via `addLine()` |
-| 16 | `Expense` aprova a si mesma? | ✅ Sim — Aggregate Root é guardião de invariantes |
-| 17 | Comparar `UserId` com `===`? | ✅ Não — usar `equals()` |
-| 18 | Quem valida moeda do `Receipt` vs `totalAmount`? | ✅ `Expense` no construtor |
-| 19 | `CostDistribution` é o VO mais complexo? | ✅ O VO é simples — complexidade está no Domain Service |
-| 20 | Quem enriquece os VOs? | ✅ Domain Services — produzem VOs como resultado |
-| 21 | `allFindAll()` no repositório? | ✅ Evitar — usar métodos específicos (`findByStatus`, `findBySubmitter`) por performance |
-| 22 | `delete` no repositório de auditoria? | ✅ Só despesas em `DRAFT` — validação no domínio, não no repositório |
-| 23 | `RuntimeException` vs `InvalidArgumentException` no Handler? | ✅ `RuntimeException` para entidade não encontrada — argumento é válido, entidade é que não existe |
-| 24 | `foreignUuid()` vs `foreign()` no Laravel? | ✅ `foreignUuid()` cria coluna + constraint UUID compatível com PostgreSQL |
-| 25 | `migrate:fresh` vs `migrate`? | ✅ `fresh` em dev (recria tudo), `migrate` em produção (só novas) |
-
----
-
-## 15. Referências e Leituras
-
-- **Livro base:** *Domain-Driven Design* — Eric Evans (Livro Azul)
-- **Livro prático:** *Implementing Domain-Driven Design* — Vaughn Vernon (Livro Vermelho)
-- **Artigo:** Padrão de Alocação Proporcional (Penny Rounding) — Martin Fowler
-- **Projeto prático de referência:** `github.com/MarceloMileo/ongmanager-backend`
+| **Aggregate** | Cluster de objetos tratados como unidade transacional |
+| **Aggregate Root** | Única entrada do Aggregate; garante consistência |
+| **Value Object** | Imutável, sem identidade, comparado por valor |
+| **Entity** | Tem identidade própria (ID), pode mudar de estado |
+| **Domain Event** | Fato imutável que aconteceu no domínio |
+| **Repository** | Abstração de persistência; o Domain conhece apenas a interface |
+| **Command** | DTO imutável com primitivos; entrada de um Use Case |
+| **Handler** | Orquestra o Use Case; constrói VOs e chama métodos do AR |
+| **Bounded Context** | Fronteira explícita de um modelo de domínio |
+| **Shared Kernel** | Conceitos compartilhados entre Bounded Contexts |
+| **IoC** | Inversão de Controle; container gerencia criação de dependências |
+| **PHPStan nível 8** | Análise estática máxima — zero erros obrigatório |
+| **Basis Points** | 1 bps = 0.01%; 10000 bps = 100% — evita floats em proporções |

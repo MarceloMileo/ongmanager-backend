@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Contexts\SpendManagement\Infrastructure\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ExpenseModel extends Model
@@ -27,5 +28,11 @@ class ExpenseModel extends Model
     public function receipt(): HasOne
     {
         return $this->hasOne(ReceiptModel::class, 'expense_id');
+    }
+
+    /** @phpstan-return HasMany<ExpenseLineModel, ExpenseModel> */
+    public function lines(): HasMany
+    {
+        return $this->hasMany(ExpenseLineModel::class, 'expense_id');
     }
 }

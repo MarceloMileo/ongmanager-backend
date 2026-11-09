@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Contexts\SpendManagement\Infrastructure\Http\Controllers;
 
+use App\Contexts\SpendManagement\Application\UseCases\AddExpenseLine\AddExpenseLineCommand;
+use App\Contexts\SpendManagement\Application\UseCases\AddExpenseLine\AddExpenseLineHandler;
 use App\Contexts\SpendManagement\Application\UseCases\ApproveExpense\ApproveExpenseCommand;
 use App\Contexts\SpendManagement\Application\UseCases\ApproveExpense\ApproveExpenseHandler;
 use App\Contexts\SpendManagement\Application\UseCases\CreateExpense\CreateExpenseCommand;
@@ -88,5 +90,23 @@ class ExpenseController extends Controller
         ));
 
         return response()->json(['message' => 'Despesa paga com sucesso.']);
+    }
+
+    public function addLine(Request $request, string $id, AddExpenseLineHandler $handler): JsonResponse
+    {
+        $handler->handle(new AddExpenseLineCommand(
+            expenseId: $id,
+            projectId: $request->input('project_id'),
+            amountCents: $request->integer('amount_cents'),
+            amountCurrency: $request->input('amount_currency'),
+            distributionType: $request->input('distribution_type'),
+            description: $request->input('description'),
+            exchangeRate: $request->input('exchange_rate'),
+            exchangeRateSourceCurrency: $request->input('exchange_rate_source_currency'),
+            exchangeRateTargetCurrency: $request->input('exchange_rate_target_currency'),
+            exchangeRateDate: $request->input('exchange_rate_date'),
+        ));
+
+        return response()->json(['message' => 'Linha adicionada com sucesso.'], 201);
     }
 }
