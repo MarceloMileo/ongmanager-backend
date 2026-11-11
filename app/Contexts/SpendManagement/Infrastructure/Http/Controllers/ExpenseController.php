@@ -24,7 +24,7 @@ class ExpenseController extends Controller
 {
     public function store(Request $request, CreateExpenseHandler $handler): JsonResponse
     {
-        $handler->handle(new CreateExpenseCommand(
+        $expenseId = $handler->handle(new CreateExpenseCommand(
             fileReference: $request->input('file_reference'),
             documentValueCents: $request->integer('document_value_cents'),
             documentValueCurrency: $request->input('document_value_currency'),
@@ -36,7 +36,10 @@ class ExpenseController extends Controller
             issuedAt: $request->input('issued_at'),
         ));
 
-        return response()->json(['message' => 'Despesa criada com sucesso.'], 201);
+        return response()->json([
+            'message' => 'Despesa criada com sucesso.',
+            'id' => $expenseId,
+        ], 201);
     }
 
     public function submit(

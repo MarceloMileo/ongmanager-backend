@@ -18,7 +18,7 @@ final readonly class CreateExpenseHandler
         private IExpenseRepository $repository,
     ) {}
 
-    public function handle(CreateExpenseCommand $command): void
+    public function handle(CreateExpenseCommand $command): string
     {
         $receipt = new Receipt(
             $command->fileReference,
@@ -36,5 +36,6 @@ final readonly class CreateExpenseHandler
         );
 
         $this->repository->save($expense);
+        return $expense->getId();
     }
 }

@@ -57,6 +57,7 @@ class EloquentExpenseRepository implements IExpenseRepository
                 'amount_currency' => $line->getAmount()->getCurrency(),
                 'description' => $line->getDescription(),
                 'exchange_rate' => $line->getExchangeRate()?->getRate(),
+                'distribution_type' => $line->getDistributionType()->value,
                 'exchange_rate_source_currency' => $line->getExchangeRate()?->getSourceCurrency(),
                 'exchange_rate_target_currency' => $line->getExchangeRate()?->getTargetCurrency(),
                 'exchange_rate_date' => $line->getExchangeRate()?->getDate()?->format('Y-m-d H:i:s'),
@@ -85,7 +86,7 @@ class EloquentExpenseRepository implements IExpenseRepository
     {
         return ExpenseModel::where('status', $status->value)
             ->get()
-            ->map(fn ($model) => $this->toDomain($model))
+            ->map(fn($model) => $this->toDomain($model))
             ->toArray();
     }
 
@@ -94,7 +95,7 @@ class EloquentExpenseRepository implements IExpenseRepository
     {
         return ExpenseModel::where('submitter_id', $id->toString())
             ->get()
-            ->map(fn ($model) => $this->toDomain($model))
+            ->map(fn($model) => $this->toDomain($model))
             ->toArray();
     }
 
@@ -103,7 +104,7 @@ class EloquentExpenseRepository implements IExpenseRepository
         $receipt = $model->receipt;
 
         if (! $receipt) {
-            throw new \RuntimeException('Expense sem receipt: '.$model->id);
+            throw new \RuntimeException('Expense sem receipt: ' . $model->id);
         }
 
         $domainReceipt = new Receipt(
